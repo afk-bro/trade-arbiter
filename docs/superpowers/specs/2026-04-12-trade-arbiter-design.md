@@ -88,7 +88,8 @@ Engine and research share storage; there is no RPC between them. The dashboard s
                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                        RISK MANAGER                              │
-│  Kill │ Balance │ Hard caps │ DailyLoss │ Circuit │ Kelly │ Max │
+│  Kill │ LiveArm │ Balance │ HardCaps │ DailyLoss │ Circuit │     │
+│  Kelly │ MaxOrderSize                                            │
 └──────────────────────────────┬───────────────────────────────────┘
                                │  OrderRequest
                                ▼
@@ -105,7 +106,10 @@ Engine and research share storage; there is no RPC between them. The dashboard s
                                │  FillEvent / OrderEvent
                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│        EventBus (routing) → EventQueue (ordering)                │
+│  EventBus.publish  ──▶  EventQueue (drains sequentially)         │
+│                              │                                   │
+│                              ▼                                   │
+│  EventBus.dispatch ◀── pops each event, fans out to subscribers  │
 └──────────────────────────────┬───────────────────────────────────┘
                                │
                                ▼
@@ -113,6 +117,8 @@ Engine and research share storage; there is no RPC between them. The dashboard s
 │      PORTFOLIO → RISK.onFill → STRATEGY.onFill/onOrderEvent      │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+Mental model for the bus/queue: an event is **published** to the bus, which immediately hands it to the queue. The queue drains one event at a time in deterministic order, and on each drain step the bus dispatches that event to its subscribers. Subscribers that produce follow-up events call `publish()` again, landing at the tail of the queue; there is never a path from a handler back to a subscriber that bypasses the queue.
 
 Above all of this sits the **EngineClock**. Every layer gets its timestamps from the clock, never from `Date.now()`. The admin service, run controller, kill-switch controller, and strategy supervisor all live in the same process as the event loop — they do not run in a separate thread or container.
 
@@ -413,12 +419,13 @@ interface KillSwitchState {
 **Rule ordering (fixed):**
 
 1. `KillSwitchRule`
-2. `BalanceRule`
-3. `HardCapsRule` (strategy + venue exposure caps)
-4. `DailyLossRule`
-5. `CircuitBreakerRule`
-6. `KellySizingRule` (reads `intent.tags.signalMeta`; no-op if absent)
-7. `MaxOrderSizeRule` (final safety clamp)
+2. `LiveArmRule` (no-op in non-live modes; rejects with `live_not_armed` when a live strategy is not armed — see Section 13)
+3. `BalanceRule`
+4. `HardCapsRule` (strategy + venue exposure caps)
+5. `DailyLossRule`
+6. `CircuitBreakerRule`
+7. `KellySizingRule` (reads `intent.tags.signalMeta`; no-op if absent)
+8. `MaxOrderSizeRule` (final safety clamp)
 
 Rules short-circuit on first rejection. Every rule evaluation is persisted to `risk_decisions`. System-level events (kill switch trips, circuit breaker, daily loss) are also persisted to `risk_events`.
 
@@ -448,7 +455,7 @@ interface EventBus {
 }
 ```
 
-EventQueue owns ordering; EventBus is routing only. Handlers may enqueue follow-ups (e.g. risk sees a kill-switch trip and enqueues a `risk_event`) but the follow-ups land at the tail, never interleaved.
+EventQueue owns ordering; EventBus is routing only. The flow is: `EventBus.publish()` hands the event to `EventQueue.enqueue()`; `EventQueue.run()` drains the queue one event at a time, and on each pop the bus dispatches that event to its subscribers. Handlers may call `publish()` to produce follow-ups (e.g. risk sees a kill-switch trip and publishes a `risk_event`) — those land at the tail of the queue and are never interleaved with the in-flight event. No path from a subscriber back to another subscriber bypasses the queue.
 
 ### 4.12 OrderManager
 
@@ -509,14 +516,29 @@ interface AdminTransport {
 }
 ```
 
-**Transport.** v1 ships a single transport: `UnixSocketAdminTransport`. It frames one JSON command per message, validates against an `AdminCommand` zod schema on the receive side, and rejects unknown kinds with `error.code = 'unknown_command'`. Socket file permissions are set to `0600` at bind so only the engine's UID can read/write. Dashboard, CLI, and any future transports (TCP, gRPC, HTTP) all speak the same command/response shapes.
+**Transport.** v1 ships a single transport: `UnixSocketAdminTransport`. It frames one JSON command per message, validates against an `AdminCommand` zod schema on the receive side, and rejects unknown kinds with `error.code = 'unknown_command'`. Dashboard, CLI, and any future transports (TCP, gRPC, HTTP) all speak the same command/response shapes.
+
+**Socket permissions.** The socket file permissions matter because v1 runs dashboard and engine as separate Compose services, and the obvious default — bind `0600` as the engine's UID — will block the dashboard container if it runs under a different UID. v1 resolves this with one of two setups, chosen in `docker-compose.yml`:
+
+1. **Same-UID.** Both containers run under the same UID/GID (e.g. a dedicated `trade-arbiter` user), and the socket is bound `0600`. Simplest option; preferred when there is no reason the two services need different identities.
+2. **Shared-group.** Engine and dashboard run under different UIDs but share a dedicated GID. The socket is bound `0660` with that GID, so only processes in the group can read/write.
+
+A TCP transport is **not** a v1 fallback — if the socket cannot be shared, fix the UID/GID setup instead. The spec does not pin the exact mode here; the decision belongs in `docker-compose.yml` and the deployment docs. Either way, the socket is never world-readable.
+
+**Serialization onto EventQueue.** All **mutating** admin commands are serialized onto the `EventQueue` as control events, not applied to engine state out-of-band. The transport thread receives a command, translates it into an `AdminControlEvent` envelope, publishes it on the bus, and awaits the `AdminResponse` written by the controller when the event is drained. Concretely:
+
+- `pause_strategy`, `resume_strategy` → `{ type: 'admin.strategy_state', ... }`
+- `kill`, `reset_kill_switch` → `{ type: 'admin.kill_switch', ... }`
+- `arm_live`, `disarm_live` → `{ type: 'admin.live_arm', ... }`
+
+Because these events flow through the same queue as market data, fills, and order lifecycle events, every state transition is **observed in deterministic order** relative to the rest of the event stream. A kill that arrives while a fill is being processed takes effect on the next event, never half-way through the current one. Read-only commands (`health`, `list_runs`, `show_run`) do **not** go through the queue — they read in-memory and SQLite state directly and can be served concurrently.
 
 **Command routing inside the engine.**
 
-- `health`, `list_runs`, `show_run` — read-only; served from in-memory run state plus SQLite.
-- `pause_strategy` / `resume_strategy` — handed off to `StrategySupervisor`, which flips per-strategy state and acknowledges once the next queued event will observe the change.
-- `kill` / `reset_kill_switch` — handed off to `KillSwitchController` (the only component allowed to mutate `KillSwitchState`). Both commands are persisted to `risk_events` with the command's `reason` field.
-- `arm_live` / `disarm_live` — handed off to `RunController`. Arming is per-run (see Section 13) and requires a matching `confirmation` string proving intent; the call fails if any `live_gate` precondition does not hold.
+- `health`, `list_runs`, `show_run` — read-only; served from in-memory run state plus SQLite without going through EventQueue.
+- `pause_strategy` / `resume_strategy` — queued as `admin.strategy_state`; drained by `StrategySupervisor`, which flips per-strategy state. Acknowledged once the control event has been processed, so the caller knows all subsequent events will observe the change.
+- `kill` / `reset_kill_switch` — queued as `admin.kill_switch`; drained by `KillSwitchController` (the only component allowed to mutate `KillSwitchState`). Both are persisted to `risk_events` with the command's `reason` field.
+- `arm_live` / `disarm_live` — queued as `admin.live_arm`; drained by `RunController`. Arming is per-run (see Section 13) and requires a matching `confirmation` string proving intent; the call fails if any `live_gate` precondition does not hold.
 
 **v1 command set.** The commands above are the v1 surface. Nothing else goes through the admin service in v1: strategy configs are loaded from YAML at start time, backtests are spawned as separate engine processes, and observability beyond `show_run` is served by the dashboard reading SQLite directly.
 
@@ -527,7 +549,7 @@ interface AdminTransport {
 - `feed_health` / `adapter_health` for feed lag and adapter connection status.
 - Config hot-reload (`reload_strategy_config`), once write-mode config editing lands.
 
-All additions extend the `AdminCommand` union; the transport, framing, and UID-only socket permissions do not change.
+All additions extend the `AdminCommand` union; the transport, framing, and socket permission model do not change.
 
 ## 5. Data Flow by Mode
 
@@ -891,6 +913,7 @@ trade-arbiter/
 │   │   │   │   ├── risk-manager.ts
 │   │   │   │   └── rules/
 │   │   │   │       ├── kill-switch.ts
+│   │   │   │       ├── live-arm.ts
 │   │   │   │       ├── balance.ts
 │   │   │   │       ├── hard-caps.ts
 │   │   │   │       ├── daily-loss.ts
@@ -979,7 +1002,7 @@ trade-arbiter/
   - ParquetReplayFeed, PolymarketWSFeed, BinanceWSFeed
   - SimpleSimAdapter, L2SimAdapter, PaperAdapter, PaperCaptureWriter
   - OrderManager
-  - RiskManager with all 7 rules
+  - RiskManager with all 8 rules
   - KillSwitchController (sole owner of KillSwitchState)
   - RunController
   - StrategySupervisor
@@ -1042,9 +1065,11 @@ Concretely:
 - `disarm_live` flips the bit back off. Restarting the engine is equivalent to disarming everything.
 - All arm / disarm actions are persisted to `risk_events` with the triggering command's reason, so the full arm history is queryable after the fact.
 
+**Rejections are deliberately persisted.** `live_not_armed` rejections are written to `risk_decisions` exactly like any other rule rejection. This is an intentional audit-trail choice: if a strategy believes it should be trading and the operator has forgotten to arm it, the evidence is already in the database. "I came in Monday morning and wondered why nothing filled" has a one-query answer (`SELECT COUNT(*) FROM risk_decisions WHERE reason = 'live_not_armed' AND run_id = ?`), and the same trail is what you'd want to reconstruct after any live incident.
+
 The other `live_gate` preconditions (min paper sessions, min paper trades, min runtime hours, parity check) are checked at startup: if any of them fail, `RunController` refuses to enter `awaiting_arm` at all and the run fails fast with a clear error.
 
 ## 14. Open questions
 
 - **Paper capture storage cost.** A paper run at 15-minute Polymarket markets is small, but a month of BTC futures orderbook capture is gigabytes. Need a rotation / retention policy before v2.
-- **Dashboard auth.** v1 runs on localhost; no auth, and the admin Unix socket is permission-gated to the engine's UID. If the dashboard is ever exposed beyond localhost (or another user on the same box needs access), auth on both the HTTP layer and the admin transport is a v2 prerequisite.
+- **Dashboard auth.** v1 runs on localhost; no auth, and the admin Unix socket is filesystem-permission-gated (same-UID or shared-GID; see Section 4.13). If the dashboard is ever exposed beyond localhost (or another user on the same box needs access), auth on both the HTTP layer and the admin transport is a v2 prerequisite.
