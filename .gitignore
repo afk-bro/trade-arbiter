@@ -1,0 +1,25 @@
+# Reference projects (each has its own git history — not tracked here)
+CloddsBot/
+Polymarket-Arbitrage-Trading-Bot/
+polymarket-5min-15min-1hour-arbitrage-trading-bot-tools/
+
+# Data (gitignored once trade-arbiter/ exists)
+data/
+
+# OS / editor noise
+.DS_Store
+.vscode/
+.idea/
+
+# Node / TypeScript (for when trade-arbiter/ is built)
+node_modules/
+dist/
+build/
+*.log
+
+# Python (for research/)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
