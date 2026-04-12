@@ -1,13 +1,15 @@
-# Arbtanis — Design Spec
+# trade-arbiter — Design Spec
 
 **Date:** 2026-04-12
 **Status:** Approved pending user review
 **Repo root:** `trade-arbiter/`
-**Package scope:** `@arbtanis/*`
+**Package scope:** `@trade-arbiter/*`
+**Binary:** `trade-arbiter`
+**Database:** `trade-arbiter.db`
 
 ## 1. Purpose
 
-Arbtanis is a production-grade trading bot framework for prediction markets and connected markets (Polymarket, Kalshi, crypto perpetual futures). It combines the best ideas from three predecessor projects:
+trade-arbiter is a production-grade trading bot framework for prediction markets and connected markets (Polymarket, Kalshi, crypto perpetual futures). It combines the best ideas from three predecessor projects:
 
 - **Polymarket-Arbitrage-Trading-Bot** — clean TypeScript execution core, hedged mean-reversion strategy, minimal dependency discipline
 - **polymarket-5min-15min-1hour-bot-tools** — multi-strategy research (VWAP/momentum, late-window consensus, PTB divergence), multi-asset parallel trading, web dashboards, Telegram notifications
@@ -38,29 +40,46 @@ No adapter accepts an `OrderRequest` that didn't come from the risk layer. No st
 ### 3.1 Containers (Docker Compose)
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ arbtanis-engine          │ arbtanis-dashboard  │ arbtanis-research  │
-│ (TypeScript, long-run)   │ (TS + web)          │ (Python, jupyter)  │
-└──────────────┬───────────┴──────────┬──────────┴─────────┬──────────┘
-               │                      │                    │
-               └──────────────────────┼────────────────────┘
-                                      │
-                  ┌───────────────────┴────────────────────┐
-                  │       SHARED STORAGE VOLUME            │
-                  │  data/                                 │
-                  │    arbtanis.db         (SQLite)        │
-                  │    market/*.parquet    (append-only)   │
-                  │    features/*.parquet  (per run)       │
-                  │    backtest/*.parquet  (result exports)│
-                  │    config/*.yaml       (strategy configs) │
-                  └────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ trade-arbiter-engine       │ trade-arbiter-dashboard │ trade-arbiter-research │
+│ (TypeScript, long-run)     │ (TS + web)              │ (Python, jupyter)      │
+└──────────────┬─────────────┴──────────┬──────────────┴─────────┬──────────┘
+               │                        │                        │
+               └────────────────────────┼────────────────────────┘
+                                        │
+                  ┌─────────────────────┴──────────────────────┐
+                  │       SHARED STORAGE VOLUME                │
+                  │  data/                                     │
+                  │    trade-arbiter.db    (SQLite)            │
+                  │    trade-arbiter.sock  (admin Unix socket) │
+                  │    market/*.parquet    (append-only)       │
+                  │    features/*.parquet  (per run)           │
+                  │    backtest/*.parquet  (result exports)    │
+                  │    config/*.yaml       (strategy configs)  │
+                  └────────────────────────────────────────────┘
 ```
 
-Engine and research share storage; there is no RPC between them. Dashboard reads SQLite directly and controls the engine over a Unix socket exposed by `engine-cli`.
+Engine and research share storage; there is no RPC between them. The dashboard server reads SQLite directly for historical views and talks to the engine's admin service over a Unix socket (`data/trade-arbiter.sock`) for control operations. The `trade-arbiter` CLI uses the same socket, so CLI and dashboard are peer clients of the engine's admin service.
 
 ### 3.2 Engine layers
 
 ```
+                            ┌────────────────────────┐
+                            │  AdminService          │◀──── trade-arbiter CLI
+                            │  (Unix socket)         │◀──── dashboard server
+                            └────────┬───────────────┘
+                                     │
+          ┌──────────────────────────┼───────────────────────────┐
+          ▼                          ▼                           ▼
+┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+│ RunController    │   │ KillSwitchController │   │ StrategySupervisor   │
+│ start/pause/     │   │ sole owner of        │   │ per-strategy state + │
+│ resume/kill/arm  │   │ KillSwitchState      │   │ exception threshold  │
+└──────┬───────────┘   └──────┬───────────────┘   └──────┬───────────────┘
+       │                      │                           │
+       │     (state changes broadcast on EventBus)        │
+       └──────────────────────┴───────────────────────────┘
+
 ┌──────────────────────────────────────────────────────────────────┐
 │                       STRATEGIES (plugins)                       │
 │  HedgedMeanReversion │ VWAPMomentum │ LateWindow │ PTB │ XArb   │
@@ -95,7 +114,7 @@ Engine and research share storage; there is no RPC between them. Dashboard reads
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Above all of this sits the **EngineClock**. Every layer gets its timestamps from the clock, never from `Date.now()`.
+Above all of this sits the **EngineClock**. Every layer gets its timestamps from the clock, never from `Date.now()`. The admin service, run controller, kill-switch controller, and strategy supervisor all live in the same process as the event loop — they do not run in a separate thread or container.
 
 ### 3.3 Component responsibilities
 
@@ -110,10 +129,14 @@ Above all of this sits the **EngineClock**. Every layer gets its timestamps from
 - **PortfolioService** — stateful aggregator. Updates positions on fills, marks to market on quotes. Exposes immutable snapshots via `portfolio()`.
 - **PersistenceService** — writes SQLite rows and Parquet partitions. Subscribes to bus events; strategies and risk never write to storage directly.
 - **Orchestrator** — reads `RunManifest`, wires dependencies, starts feeds, handles shutdown.
+- **RunController** — owns the lifecycle of one or more concurrent runs (start, pause, resume, kill). Thin layer above the Orchestrator that turns admin commands into structured state transitions and surfaces them back to the AdminService.
+- **KillSwitchController** — single owner of kill-switch mutation. All trips and resets go through here; it writes to `risk_events`, updates `RiskState`, and broadcasts state changes on the bus. No other component is allowed to mutate `KillSwitchState` directly.
+- **StrategySupervisor** — tracks per-strategy running state (running / paused / killed), catches unhandled exceptions emitted by strategy callbacks, applies the strategy-exception threshold that feeds the kill switch, and routes `pause_strategy` / `resume_strategy` admin commands.
+- **AdminService** — long-lived in-process control surface. Exposes a small command interface over a Unix socket. Both the `trade-arbiter` CLI and the dashboard server are clients of this service. See Section 4.13.
 
 ## 4. Core Contracts
 
-All types live in `@arbtanis/core`. Zero runtime dependencies. Importable by anything.
+All types live in `@trade-arbiter/core`. Zero runtime dependencies. Importable by anything.
 
 ### 4.1 Primitives
 
@@ -401,13 +424,13 @@ Rules short-circuit on first rejection. Every rule evaluation is persisted to `r
 
 **Kill switch lifecycle.** The kill switch is an engine-wide boolean that any component can trip. Once tripped, `RiskManager.check()` rejects every intent with `reason: 'kill_switch'` and `size: 0` regardless of the rest of the pipeline. It can be tripped by:
 
-- Explicit user action (`engine-cli admin kill`, dashboard button, or future Telegram command)
+- Explicit user action (`trade-arbiter admin kill`, dashboard button, or future Telegram command)
 - `DailyLossRule` exceeded
 - `CircuitBreakerRule` triggered
 - Strategy unhandled exception count exceeds threshold
 - Risk manager unexpected internal error
 
-Once tripped, the only way to untrip it is a manual `engine-cli admin reset` or the equivalent dashboard control. There is no automatic recovery. Kill switch state is persisted to `risk_events` on every trip and reset, and the current state is surfaced in the dashboard at all times.
+Once tripped, the only way to untrip it is a manual `trade-arbiter admin reset-kill-switch` or the equivalent dashboard control. There is no automatic recovery. Kill switch state is persisted to `risk_events` on every trip and reset, and the current state is surfaced in the dashboard at all times.
 
 ### 4.11 EventQueue + EventBus
 
@@ -450,6 +473,61 @@ interface OrderManager {
 ```
 
 The order manager sits on the path between risk and execution for the submit direction and between execution and strategies for the feedback direction. It is the single source of truth for "what's in flight right now."
+
+### 4.13 AdminService
+
+The engine exposes a tiny long-lived admin service in the same process as the event loop. It is bound to a local Unix socket (`data/trade-arbiter.sock`) and **never** listens on a TCP port in v1. Both the `trade-arbiter` CLI and the dashboard server connect as peer clients; there is no dashboard-to-engine coupling beyond this interface.
+
+```typescript
+type AdminCommand =
+  | { kind: 'health' }
+  | { kind: 'list_runs' }
+  | { kind: 'show_run'; runId: RunId }
+  | { kind: 'pause_strategy'; runId: RunId; strategyId: StrategyId }
+  | { kind: 'resume_strategy'; runId: RunId; strategyId: StrategyId }
+  | { kind: 'kill'; reason: string }
+  | { kind: 'reset_kill_switch'; reason: string }
+  | { kind: 'arm_live'; runId: RunId; strategyId: StrategyId; confirmation: string }
+  | { kind: 'disarm_live'; runId: RunId; strategyId: StrategyId };
+
+interface AdminResponse<T = unknown> {
+  ok: boolean;
+  ts: Timestamp;
+  data?: T;
+  error?: { code: string; message: string };
+}
+
+interface AdminService {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  handle<T>(cmd: AdminCommand): Promise<AdminResponse<T>>;
+}
+
+interface AdminTransport {
+  bind(service: AdminService): Promise<void>;
+  close(): Promise<void>;
+}
+```
+
+**Transport.** v1 ships a single transport: `UnixSocketAdminTransport`. It frames one JSON command per message, validates against an `AdminCommand` zod schema on the receive side, and rejects unknown kinds with `error.code = 'unknown_command'`. Socket file permissions are set to `0600` at bind so only the engine's UID can read/write. Dashboard, CLI, and any future transports (TCP, gRPC, HTTP) all speak the same command/response shapes.
+
+**Command routing inside the engine.**
+
+- `health`, `list_runs`, `show_run` — read-only; served from in-memory run state plus SQLite.
+- `pause_strategy` / `resume_strategy` — handed off to `StrategySupervisor`, which flips per-strategy state and acknowledges once the next queued event will observe the change.
+- `kill` / `reset_kill_switch` — handed off to `KillSwitchController` (the only component allowed to mutate `KillSwitchState`). Both commands are persisted to `risk_events` with the command's `reason` field.
+- `arm_live` / `disarm_live` — handed off to `RunController`. Arming is per-run (see Section 13) and requires a matching `confirmation` string proving intent; the call fails if any `live_gate` precondition does not hold.
+
+**v1 command set.** The commands above are the v1 surface. Nothing else goes through the admin service in v1: strategy configs are loaded from YAML at start time, backtests are spawned as separate engine processes, and observability beyond `show_run` is served by the dashboard reading SQLite directly.
+
+**v1.1 / v2 additions.**
+
+- Streaming event subscriptions (`subscribe_events`) over the same socket, so the dashboard can tail live intents / risk events without polling.
+- `tail_intents`, `tail_risk_events` one-shot tails for CLI ergonomics.
+- `feed_health` / `adapter_health` for feed lag and adapter connection status.
+- Config hot-reload (`reload_strategy_config`), once write-mode config editing lands.
+
+All additions extend the `AdminCommand` union; the transport, framing, and UID-only socket permissions do not change.
 
 ## 5. Data Flow by Mode
 
@@ -702,14 +780,14 @@ live_gate:
   min_paper_trades: 50
   min_paper_runtime_hours: 24
   parity_check: required
-  user_armed: required
+  user_armed: required        # per-run arm via `trade-arbiter admin arm-live`; see Section 13
 ```
 
-Orchestrator validates at startup. Refuses to start a `live` strategy unless every `live_gate` precondition holds.
+Orchestrator validates at startup. Refuses to start a `live` strategy unless every `live_gate` precondition holds. `user_armed: required` is declarative — the operator still has to issue a fresh `arm_live` admin command on every run before any intent reaches the live adapter. See Section 13 for the full per-run arm lifecycle.
 
 ## 8. Parity Testing
 
-Three parity tests, runnable via `engine-cli parity`:
+Three parity tests, runnable via `trade-arbiter parity`:
 
 1. **Replay determinism** — same strategy, same Parquet data, same seed → bit-for-bit identical intents across two runs.
 2. **L1 vs L2 parity** — same strategy over the same window in both modes → intents match within tolerance. Fills may differ.
@@ -732,13 +810,13 @@ Parity failure blocks the live-mode gate.
 
 ## 9. Dashboard (v1 minimal)
 
-React (or similar) frontend, TypeScript backend reads SQLite directly and talks to engine over a Unix socket.
+React (or similar) frontend. The dashboard server is **not** special-cased: it is an ordinary client of the engine's `AdminService` (Section 4.13) over `data/trade-arbiter.sock`, and it reads SQLite directly for historical views. Control actions (start / pause / resume / kill / reset-kill-switch / arm-live / disarm-live) are issued as `AdminCommand`s; the CLI uses the exact same commands through the exact same socket.
 
 **Panels:**
 
 - **Live positions** — current open positions with mark-to-market, per-strategy P&L, total equity.
 - **P&L chart** — intraday equity curve for the current run.
-- **Strategy status** — per strategy: mode (paper/live), status (running/paused/killed), last N intents, last fill, current paper/live gate progress.
+- **Strategy status** — per strategy: mode (paper/live), status (running/paused/killed/awaiting_arm), last N intents, last fill, current paper/live gate progress.
 - **Intent stream** — live-updating feed of every intent:
 
 ```
@@ -748,9 +826,11 @@ ts          venue   symbol    side  req → approved  reason
 16:24:45.8  poly    eth-up    buy   5.0 → 0.0       daily_loss_hit
 ```
 
+In v1 the intent stream is served by polling SQLite. In v1.1 it moves to the `subscribe_events` admin command.
+
 - **Trade log** — filterable by run, strategy, venue, symbol. Joins intents → requests → fills.
 - **Risk events** — live feed of risk events with severity coloring. Kill switch state prominently displayed.
-- **Controls** — per-strategy start / pause / resume. Global kill switch button (red, confirm dialog).
+- **Controls** — per-strategy start / pause / resume (issues `pause_strategy` / `resume_strategy`). Global kill switch button (red, confirm dialog; issues `kill`). Reset kill switch button behind a second confirm (`reset_kill_switch`). Live arm / disarm buttons behind an explicit strategy-name confirmation (`arm_live` / `disarm_live`).
 
 Write-mode config editing, backtest result viewer, and parameter sweep UI are v2.
 
@@ -761,7 +841,7 @@ trade-arbiter/
 ├── docker-compose.yml
 ├── package.json                   (workspace root)
 ├── packages/
-│   ├── core/                      (@arbtanis/core — contracts only, zero runtime deps)
+│   ├── core/                      (@trade-arbiter/core — contracts only, zero runtime deps)
 │   │   ├── src/
 │   │   │   ├── events.ts          EngineEvent, MarketEvent, FillEvent, OrderEvent
 │   │   │   ├── intents.ts         OrderIntent, OrderRequest, OrderStatus
@@ -769,18 +849,27 @@ trade-arbiter/
 │   │   │   ├── context.ts         RunContext, EngineClock
 │   │   │   ├── strategy.ts        Strategy, StrategyContext
 │   │   │   ├── adapter.ts         ExecutionAdapter, DataFeed
-│   │   │   └── risk.ts            RiskRule, RiskDecision, KillSwitchState
+│   │   │   ├── risk.ts            RiskRule, RiskDecision, KillSwitchState
+│   │   │   └── admin.ts           AdminCommand, AdminResponse, AdminService
 │   │   └── test/
 │   │
-│   ├── engine/                    (@arbtanis/engine — long-running process)
+│   ├── engine/                    (@trade-arbiter/engine — long-running process)
 │   │   ├── src/
-│   │   │   ├── bin/arbtanis.ts
+│   │   │   ├── bin/trade-arbiter.ts    single binary; subcommands below dispatch to admin socket
 │   │   │   ├── cli/
-│   │   │   │   ├── index.ts
-│   │   │   │   ├── run.ts
-│   │   │   │   ├── backtest.ts
-│   │   │   │   ├── parity.ts
-│   │   │   │   └── admin.ts       kill, reset, list-runs, show-run
+│   │   │   │   ├── index.ts            argument parsing + subcommand registry
+│   │   │   │   ├── run.ts              starts engine process (no admin call)
+│   │   │   │   ├── backtest.ts         starts engine process in backtest mode
+│   │   │   │   ├── parity.ts           local parity runner
+│   │   │   │   └── admin.ts            client for health/list-runs/show-run/
+│   │   │   │                           pause-strategy/resume-strategy/kill/
+│   │   │   │                           reset-kill-switch/arm-live/disarm-live
+│   │   │   ├── admin/
+│   │   │   │   ├── admin-service.ts        implements AdminService
+│   │   │   │   ├── unix-socket-transport.ts UnixSocketAdminTransport
+│   │   │   │   ├── run-controller.ts       start/pause/resume/kill runs
+│   │   │   │   ├── kill-switch-controller.ts  sole owner of KillSwitchState
+│   │   │   │   └── strategy-supervisor.ts  per-strategy state + exception threshold
 │   │   │   ├── bus/
 │   │   │   │   ├── event-queue.ts
 │   │   │   │   └── event-bus.ts
@@ -800,7 +889,6 @@ trade-arbiter/
 │   │   │   │   └── live-polymarket-adapter.ts   (v1.1)
 │   │   │   ├── risk/
 │   │   │   │   ├── risk-manager.ts
-│   │   │   │   ├── kill-switch.ts
 │   │   │   │   └── rules/
 │   │   │   │       ├── kill-switch.ts
 │   │   │   │       ├── balance.ts
@@ -826,7 +914,7 @@ trade-arbiter/
 │   │       ├── parity/
 │   │       └── fixtures/          parquet fixtures, sample YAML configs, synthetic orderbooks
 │   │
-│   ├── strategies/                (@arbtanis/strategies — plug-ins)
+│   ├── strategies/                (@trade-arbiter/strategies — plug-ins)
 │   │   ├── src/
 │   │   │   ├── hedged-mean-reversion/
 │   │   │   │   ├── index.ts
@@ -839,15 +927,16 @@ trade-arbiter/
 │   │   │   └── delta-neutral-hedge/ (v2)
 │   │   └── index.ts               registry
 │   │
-│   └── dashboard/                 (@arbtanis/dashboard)
+│   └── dashboard/                 (@trade-arbiter/dashboard)
 │       ├── server/
-│       │   └── src/
+│       │   └── src/               connects to data/trade-arbiter.sock for control,
+│       │                          reads SQLite for historical views
 │       └── web/
 │           └── src/
 │
 ├── research/                      (Python sidecar)
 │   ├── pyproject.toml
-│   ├── arbtanis_research/
+│   ├── trade_arbiter_research/
 │   │   ├── loaders.py             pandas loaders for SQLite + Parquet
 │   │   ├── backtest_analysis.py
 │   │   ├── parity_check.py
@@ -865,7 +954,8 @@ trade-arbiter/
 │   └── migrate-db.ts              SQLite schema migrations
 │
 ├── data/                          (shared volume, gitignored)
-│   ├── arbtanis.db
+│   ├── trade-arbiter.db
+│   ├── trade-arbiter.sock         admin Unix socket (created by engine at startup)
 │   ├── market/
 │   ├── features/
 │   └── backtest/
@@ -873,32 +963,35 @@ trade-arbiter/
 └── docs/
     └── superpowers/
         └── specs/
-            └── 2026-04-12-arbtanis-design.md
+            └── 2026-04-12-trade-arbiter-design.md
 ```
 
-**Dependency direction** is structural: `core` has no dependencies; `strategies` depends only on `core`; `engine` depends on `core` and `strategies`; `dashboard` reads SQLite and hits `engine-cli`. A strategy cannot accidentally import from the engine because the engine is not visible from the strategies package.
+**Dependency direction** is structural: `core` has no dependencies; `strategies` depends only on `core`; `engine` depends on `core` and `strategies`; `dashboard` depends on `core` (for `AdminCommand` / `AdminResponse` shapes), reads SQLite directly for historical views, and talks to the engine over `data/trade-arbiter.sock` for control. A strategy cannot accidentally import from the engine because the engine is not visible from the strategies package.
 
 ## 11. v1 Scope
 
 ### 11.1 In scope
 
-- `@arbtanis/core` — all contracts in Section 4
-- `@arbtanis/engine`:
+- `@trade-arbiter/core` — all contracts in Section 4
+- `@trade-arbiter/engine`:
   - EventQueue, EventBus
   - WallClock, BacktestClock
   - ParquetReplayFeed, PolymarketWSFeed, BinanceWSFeed
   - SimpleSimAdapter, L2SimAdapter, PaperAdapter, PaperCaptureWriter
   - OrderManager
   - RiskManager with all 7 rules
-  - KillSwitch with CLI + dashboard control
+  - KillSwitchController (sole owner of KillSwitchState)
+  - RunController
+  - StrategySupervisor
+  - AdminService + UnixSocketAdminTransport (v1 command set in Section 4.13)
   - PortfolioService
   - PersistenceService (SQLite + Parquet writers)
   - Orchestrator + RunManifest
   - Config loader (YAML + zod + config hashing)
-  - `engine-cli`: `run`, `backtest`, `parity`, `admin kill|reset|list-runs|show-run`
-- `@arbtanis/strategies`:
+  - `trade-arbiter` binary with subcommands: `run`, `backtest`, `parity`, `admin <cmd>` where `<cmd>` is one of `health | list-runs | show-run | pause-strategy | resume-strategy | kill | reset-kill-switch | arm-live | disarm-live`. `run` and `backtest` start the engine process; the rest are thin clients that open `data/trade-arbiter.sock` and dispatch an `AdminCommand`.
+- `@trade-arbiter/strategies`:
   - **HedgedMeanReversion** — one strategy, ported from Polymarket-Arbitrage-Trading-Bot, rewritten against the `Strategy` interface
-- `@arbtanis/dashboard` — all panels in Section 9
+- `@trade-arbiter/dashboard` — all panels in Section 9; server talks to admin socket for control, reads SQLite for historical views
 - `research/`:
   - Python loaders
   - `parity_check.py`
@@ -921,12 +1014,12 @@ trade-arbiter/
 
 v1 is complete when **all** of the following hold:
 
-1. `engine-cli backtest --strategy hedged-btc-15m --range 2025-10-01:2025-12-31 --mode backtest_l1` completes: fills, P&L, equity curve exported to Parquet.
+1. `trade-arbiter backtest --strategy hedged-btc-15m --range 2025-10-01:2025-12-31 --mode backtest_l1` completes: fills, P&L, equity curve exported to Parquet.
 2. Same run in `--mode backtest_l2` completes; L1 vs L2 parity test passes for intents (tolerance 1000ms).
-3. `engine-cli run --strategy hedged-btc-15m --mode paper` runs against live Polymarket WS for **at least 24 hours**, produces **at least 30 risk-approved intents**, and does not crash.
-4. Dashboard shows the paper run live with working kill switch, intent stream, position panel, and risk events feed.
-5. `engine-cli parity --run-a <paper> --run-b <backtest>` passes for a shared window.
-6. `risk/rules/daily-loss.ts` tripped at least once in a test scenario, verified to halt trading and require manual reset via `engine-cli admin reset`.
+3. `trade-arbiter run --strategy hedged-btc-15m --mode paper` runs against live Polymarket WS for **at least 24 hours**, produces **at least 30 risk-approved intents**, and does not crash.
+4. Dashboard shows the paper run live with working kill switch, intent stream, position panel, and risk events feed. All control buttons route through the admin Unix socket (`data/trade-arbiter.sock`).
+5. `trade-arbiter parity --run-a <paper> --run-b <backtest>` passes for a shared window.
+6. `risk/rules/daily-loss.ts` tripped at least once in a test scenario, verified to halt trading and require manual reset via `trade-arbiter admin reset-kill-switch`.
 7. **Crash recovery test:** engine container killed mid-run (`docker kill`) and restarted. Engine either (a) resumes cleanly from persisted state with no duplicated or lost orders, or (b) terminates cleanly with the run marked `crashed` in SQLite and no corrupted state. Verified by a scripted integration test.
 8. No test or run uses real money. `LivePolymarketAdapter` is not implemented.
 
@@ -937,8 +1030,21 @@ v1 is complete when **all** of the following hold:
 - Not trying to beat HFT shops on latency. We are trying to trade correctly and safely with a few hundred milliseconds of latency budget.
 - Not optimizing for ops scale. One operator, one machine, one Docker Compose file.
 
-## 13. Open questions
+## 13. Live-mode gate
 
-- **Live-mode gate: "user_armed" mechanism.** Dashboard button + CLI flag both work. Need to decide whether the arm is sticky per strategy (once armed, stays armed across restarts until disarmed) or per-run (must be re-armed every start). Recommend sticky with explicit disarm — safer for long-running paper runs being promoted.
+The live-mode gate is **per-run, not sticky**. Every time the engine starts a strategy in `mode: live`, the operator must issue a fresh `arm_live` admin command (via dashboard button or `trade-arbiter admin arm-live`) before any intent from that strategy can reach the live execution adapter. The arm state lives in-memory on the `RunController`; restarting the engine, crashing, or cycling the run all clear it. This is deliberately annoying: every live start is a deliberate, recent human action, and there is no way for a forgotten arm to persist across a weekend.
+
+Concretely:
+
+- `config.live_gate.user_armed: required` is a declaration of intent; it does not by itself arm anything.
+- On startup, a live strategy's `RunController` enters the `awaiting_arm` state. Intents from the strategy are rejected at the risk layer with `reason: 'live_not_armed'` until the arm command arrives.
+- `arm_live` requires the caller to supply a `confirmation` string (the full `strategyId`) which `RunController` checks before flipping the arm bit. This is cheap protection against fat-fingering a dashboard button.
+- `disarm_live` flips the bit back off. Restarting the engine is equivalent to disarming everything.
+- All arm / disarm actions are persisted to `risk_events` with the triggering command's reason, so the full arm history is queryable after the fact.
+
+The other `live_gate` preconditions (min paper sessions, min paper trades, min runtime hours, parity check) are checked at startup: if any of them fail, `RunController` refuses to enter `awaiting_arm` at all and the run fails fast with a clear error.
+
+## 14. Open questions
+
 - **Paper capture storage cost.** A paper run at 15-minute Polymarket markets is small, but a month of BTC futures orderbook capture is gigabytes. Need a rotation / retention policy before v2.
-- **Dashboard auth.** v1 runs on localhost; no auth. If the dashboard is ever exposed beyond localhost, auth is a v2 prerequisite.
+- **Dashboard auth.** v1 runs on localhost; no auth, and the admin Unix socket is permission-gated to the engine's UID. If the dashboard is ever exposed beyond localhost (or another user on the same box needs access), auth on both the HTTP layer and the admin transport is a v2 prerequisite.
