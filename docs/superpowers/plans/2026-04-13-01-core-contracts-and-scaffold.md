@@ -219,21 +219,13 @@ cd trade-arbiter && npm install && cd ..
 
 Expected: `added N packages` (N is some small number — typescript, tsx, @types/node and their transitive deps). A `package-lock.json` is created. No errors. The directory `trade-arbiter/node_modules/` exists.
 
-- [ ] **Step 6: Confirm typecheck and test scripts run as no-ops**
+- [ ] **Step 6: Skip the no-op verification — deferred to Task 2**
 
-Run from `arbitrage_trading/`:
+**npm 11 regression note:** On npm ≥ 11, `npm run <script> --workspaces --if-present` errors with `No workspaces found!` and exit 1 when the `packages/*` glob matches nothing — `--if-present` only suppresses missing per-package scripts, not an empty workspace set. Plan 1 was originally written assuming npm 10 behavior where this returned 0.
 
-```bash
-cd trade-arbiter && npm run typecheck && cd ..
-```
+Do not attempt a no-op verification here. Both `npm run typecheck` and `npm test` will fail until at least one workspace package exists. Task 2 creates `packages/core/` and the same scripts will then succeed end-to-end — that is where workspace plumbing is verified.
 
-Expected: prints `> trade-arbiter@0.0.0 typecheck` then nothing else (no workspaces yet). Exit code 0.
-
-```bash
-cd trade-arbiter && npm test && cd ..
-```
-
-Expected: same — no workspaces means nothing to run. Exit code 0.
+Do **not** introduce a `|| true` workaround in the workspace scripts. It would always return 0 and silently mask real typecheck/test failures once packages exist. Leave the scripts as written in Step 2.
 
 - [ ] **Step 7: Commit**
 
