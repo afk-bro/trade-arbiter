@@ -23,3 +23,6 @@ __pycache__/
 .venv/
 venv/
 .ipynb_checkpoints/
+
+# Git worktrees (subagent-driven plan execution)
+.worktrees/
