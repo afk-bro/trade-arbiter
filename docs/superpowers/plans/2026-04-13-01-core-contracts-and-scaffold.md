@@ -2431,32 +2431,32 @@ import type { RunId, StrategyId, Timestamp } from './primitives.js';
  * receiving controller to route it without further lookup.
  */
 export type AdminCommand =
-  | { kind: 'health' }
-  | { kind: 'list_runs' }
-  | { kind: 'show_run'; runId: RunId }
-  | { kind: 'pause_strategy'; runId: RunId; strategyId: StrategyId }
-  | { kind: 'resume_strategy'; runId: RunId; strategyId: StrategyId }
-  | { kind: 'kill'; reason: string }
-  | { kind: 'reset_kill_switch'; reason: string }
+  | { readonly kind: 'health' }
+  | { readonly kind: 'list_runs' }
+  | { readonly kind: 'show_run'; readonly runId: RunId }
+  | { readonly kind: 'pause_strategy'; readonly runId: RunId; readonly strategyId: StrategyId }
+  | { readonly kind: 'resume_strategy'; readonly runId: RunId; readonly strategyId: StrategyId }
+  | { readonly kind: 'kill'; readonly reason: string }
+  | { readonly kind: 'reset_kill_switch'; readonly reason: string }
   | {
-      kind: 'arm_live';
-      runId: RunId;
-      strategyId: StrategyId;
+      readonly kind: 'arm_live';
+      readonly runId: RunId;
+      readonly strategyId: StrategyId;
       /** Must equal `strategyId` — protects against fat-fingered dashboard clicks. */
-      confirmation: string;
+      readonly confirmation: string;
     }
-  | { kind: 'disarm_live'; runId: RunId; strategyId: StrategyId };
+  | { readonly kind: 'disarm_live'; readonly runId: RunId; readonly strategyId: StrategyId };
 
 /** Discriminator string of every AdminCommand variant. */
 export type AdminCommandKind = AdminCommand['kind'];
 
 export interface AdminResponse<T = unknown> {
-  ok: boolean;
-  ts: Timestamp;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
+  readonly ok: boolean;
+  readonly ts: Timestamp;
+  readonly data?: T;
+  readonly error?: {
+    readonly code: string;
+    readonly message: string;
   };
 }
 
