@@ -35,9 +35,13 @@ export type Side = 'buy' | 'sell';
 
 /**
  * Outcome token for binary prediction markets.
- * `null` means a non-binary venue (futures, perps).
+ *
+ * Fields typed as `outcome?: OutcomeToken` use ABSENCE (`undefined`) as the
+ * single sentinel for non-binary venues (futures, perps). There is no `null`
+ * variant — that would introduce two indistinguishable representations of
+ * "no outcome".
  */
-export type OutcomeToken = 'YES' | 'NO' | null;
+export type OutcomeToken = 'YES' | 'NO';
 
 /**
  * Runtime list of every Mode in declaration order. Used by config validators

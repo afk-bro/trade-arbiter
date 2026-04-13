@@ -49,47 +49,47 @@ export const MARKET_EVENT_TYPES = [
  * useful for measuring feed lag.
  */
 export interface BaseMarketEvent {
-  type: MarketEventType;
-  venue: Venue;
-  symbol: Symbol;
-  tsExchange: Timestamp;
-  tsReceived: Timestamp;
+  readonly type: MarketEventType;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
+  readonly tsExchange: Timestamp;
+  readonly tsReceived: Timestamp;
   /** Venue sequence number, when the venue provides one. */
-  seq?: number;
+  readonly seq?: number;
   /** Venue-normalized mid, when derivable. */
-  mid?: number;
+  readonly mid?: number;
 }
 
 export interface QuoteEvent extends BaseMarketEvent {
-  type: 'quote';
-  bid: number;
-  ask: number;
-  bidSize: number;
-  askSize: number;
+  readonly type: 'quote';
+  readonly bid: number;
+  readonly ask: number;
+  readonly bidSize: number;
+  readonly askSize: number;
 }
 
 export interface TradeEvent extends BaseMarketEvent {
-  type: 'trade';
-  price: number;
-  size: number;
-  side: Side;
+  readonly type: 'trade';
+  readonly price: number;
+  readonly size: number;
+  readonly side: Side;
 }
 
 export interface OrderBookEvent extends BaseMarketEvent {
-  type: 'orderbook';
+  readonly type: 'orderbook';
   /** Each entry is `[price, size]`. Sorted high-to-low for bids, low-to-high for asks. */
-  bids: ReadonlyArray<readonly [number, number]>;
-  asks: ReadonlyArray<readonly [number, number]>;
+  readonly bids: ReadonlyArray<readonly [number, number]>;
+  readonly asks: ReadonlyArray<readonly [number, number]>;
 }
 
 export interface CandleEvent extends BaseMarketEvent {
-  type: 'candle';
-  interval: string;
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
+  readonly type: 'candle';
+  readonly interval: string;
+  readonly o: number;
+  readonly h: number;
+  readonly l: number;
+  readonly c: number;
+  readonly v: number;
 }
 
 /**

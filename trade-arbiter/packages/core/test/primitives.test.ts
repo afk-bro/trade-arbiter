@@ -34,9 +34,8 @@ test('primitive types compile in literal values', () => {
   const side: Side = 'buy';
   const outcomeYes: OutcomeToken = 'YES';
   const outcomeNo: OutcomeToken = 'NO';
-  const outcomeNull: OutcomeToken = null;
   const mode: Mode = 'backtest_l1';
   const venue: Venue = 'polymarket';
   void ts; void runId; void strategyId; void configHash; void sym;
-  void side; void outcomeYes; void outcomeNo; void outcomeNull; void mode; void venue;
+  void side; void outcomeYes; void outcomeNo; void mode; void venue;
 });

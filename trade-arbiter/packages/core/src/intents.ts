@@ -29,7 +29,11 @@ export interface OrderIntent {
   readonly tsCreated: Timestamp;
   readonly venue: Venue;
   readonly symbol: Symbol;
-  /** Required for binary prediction markets, omitted for non-binary venues. */
+  /**
+   * Required for binary prediction markets, omitted for non-binary venues.
+   * Absence (`undefined`) is the only sentinel for "non-binary"; there is no
+   * `null` variant.
+   */
   readonly outcome?: OutcomeToken;
   readonly side: Side;
   readonly sizeRequested: number;

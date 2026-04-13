@@ -52,34 +52,39 @@ export interface RiskDecision {
 }
 
 /**
- * Engine-wide kill-switch state. Mutated only by the KillSwitchController
- * (introduced in Plan 6). Once active, RiskManager.check() rejects every
- * intent regardless of the rest of the pipeline.
+ * Engine-wide kill-switch state. Owned by the KillSwitchController
+ * (introduced in Plan 6), which replaces the value wholesale rather than
+ * mutating it in place — every field is `readonly`. Once `active` is true,
+ * `RiskManager.check()` rejects every intent regardless of the rest of the
+ * pipeline.
  */
 export interface KillSwitchState {
-  active: boolean;
-  triggeredBy: 'user' | 'risk_rule' | 'system_error' | null;
-  reason: string;
-  triggeredAt: Timestamp | null;
+  readonly active: boolean;
+  readonly triggeredBy: 'user' | 'risk_rule' | 'system_error' | null;
+  readonly reason: string;
+  readonly triggeredAt: Timestamp | null;
 }
 
 /**
  * Aggregate risk state passed to every rule. Owned by the RiskManager;
- * rules read it but never write to it.
+ * rules read it but never write to it. Every field is `readonly`; the
+ * manager advances state by constructing a new `RiskState` on each update,
+ * which keeps the contract free of hidden mutation hazards even when a rule
+ * receives it as the plain interface (not just `Readonly<RiskState>`).
  */
 export interface RiskState {
-  killSwitch: KillSwitchState;
+  readonly killSwitch: KillSwitchState;
   /** When the current trading day began. */
-  dayStartTs: Timestamp;
+  readonly dayStartTs: Timestamp;
   /** Running realized P&L since dayStartTs. */
-  realizedPnlToday: number;
+  readonly realizedPnlToday: number;
   /** Resets to 0 on any winning trade. */
-  consecutiveLosses: number;
-  circuitBreakerTrippedAt: Timestamp | null;
+  readonly consecutiveLosses: number;
+  readonly circuitBreakerTrippedAt: Timestamp | null;
   /** Strategy → open position value in USD. */
-  strategyExposureUsd: ReadonlyMap<StrategyId, number>;
+  readonly strategyExposureUsd: ReadonlyMap<StrategyId, number>;
   /** Venue → total exposure in USD. */
-  venueExposureUsd: ReadonlyMap<Venue, number>;
+  readonly venueExposureUsd: ReadonlyMap<Venue, number>;
 }
 
 /**

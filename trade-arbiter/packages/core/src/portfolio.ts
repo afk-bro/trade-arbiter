@@ -8,7 +8,9 @@ import type { OutcomeToken, Symbol, Timestamp, Venue } from './primitives.js';
 /**
  * One position. `qty` is signed: positive for long, negative for short.
  * For binary prediction markets `outcome` distinguishes YES from NO sides
- * of the same market; for non-binary venues `outcome` is omitted.
+ * of the same market; for non-binary venues `outcome` is omitted. Absence
+ * (`undefined`) is the only sentinel for "non-binary"; there is no `null`
+ * variant.
  */
 export interface PositionState {
   readonly venue: Venue;
