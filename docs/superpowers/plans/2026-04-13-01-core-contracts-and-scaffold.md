@@ -2463,7 +2463,15 @@ export interface AdminResponse<T = unknown> {
 export interface AdminService {
   start(): Promise<void>;
   stop(): Promise<void>;
-  handle<T = unknown>(cmd: AdminCommand): Promise<AdminResponse<T>>;
+  /**
+   * Returns `Promise<AdminResponse>` (i.e. `AdminResponse<unknown>`) rather
+   * than a caller-chosen generic `Promise<AdminResponse<T>>`. The generic
+   * form would say the *caller* picks `T`, but no implementation can return
+   * a value of `AdminResponse<T>` for arbitrary `T`. Callers narrow on
+   * `cmd.kind` and cast `data` at the call site if they need a concrete
+   * shape.
+   */
+  handle(cmd: AdminCommand): Promise<AdminResponse>;
 }
 
 /**
