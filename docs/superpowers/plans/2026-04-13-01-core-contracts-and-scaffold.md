@@ -1495,13 +1495,13 @@ export interface Logger {
  * and immutable; emit() is the only way to produce intents.
  */
 export interface StrategyContext {
-  clock: EngineClock;
-  ctx: RunContext;
+  readonly clock: EngineClock;
+  readonly ctx: RunContext;
   /** Pull-based, immutable snapshot. */
   portfolio(): Readonly<PortfolioState>;
   /** Validated against the strategy-specific zod schema before init. */
-  config: unknown;
-  logger: Logger;
+  readonly config: unknown;
+  readonly logger: Logger;
   /** Submits an intent to the risk layer. Synchronous; no return value. */
   emit(intent: OrderIntent): void;
 }
