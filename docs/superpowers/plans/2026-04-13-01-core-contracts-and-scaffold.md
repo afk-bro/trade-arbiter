@@ -593,10 +593,10 @@ import type { ConfigHash, Mode, RunId, StrategyId, Timestamp } from './primitive
  * envelope and every persisted row carries one of these.
  */
 export interface RunContext {
-  runId: RunId;
-  strategyId: StrategyId;
-  configHash: ConfigHash;
-  mode: Mode;
+  readonly runId: RunId;
+  readonly strategyId: StrategyId;
+  readonly configHash: ConfigHash;
+  readonly mode: Mode;
 }
 
 /**
