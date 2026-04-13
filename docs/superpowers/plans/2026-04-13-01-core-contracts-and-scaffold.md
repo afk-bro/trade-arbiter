@@ -1062,10 +1062,10 @@ import type { OutcomeToken, Side, Symbol, Timestamp, Venue } from './primitives.
  */
 export interface StrategySignalMeta {
   /** Expected price edge in venue units, e.g. 0.03 = 3c on a $1 binary. */
-  expectedEdge?: number;
-  variance?: number;
+  readonly expectedEdge?: number;
+  readonly variance?: number;
   /** Confidence in [0, 1]. */
-  confidence?: number;
+  readonly confidence?: number;
 }
 
 /**
@@ -1074,24 +1074,24 @@ export interface StrategySignalMeta {
  */
 export interface OrderIntent {
   /** Strategy-generated; idempotent so retries do not duplicate. */
-  intentId: string;
-  ctx: RunContext;
-  tsCreated: Timestamp;
-  venue: Venue;
-  symbol: Symbol;
+  readonly intentId: string;
+  readonly ctx: RunContext;
+  readonly tsCreated: Timestamp;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
   /** Required for binary prediction markets, omitted for non-binary venues. */
-  outcome?: OutcomeToken;
-  side: Side;
-  sizeRequested: number;
+  readonly outcome?: OutcomeToken;
+  readonly side: Side;
+  readonly sizeRequested: number;
   /** Limit price; omit for market orders. */
-  priceLimit?: number;
-  timeInForce: 'GTC' | 'IOC' | 'FOK' | 'FAK';
+  readonly priceLimit?: number;
+  readonly timeInForce: 'GTC' | 'IOC' | 'FOK' | 'FAK';
   /** Free-text reason emitted by the strategy; ends up in audit rows. */
-  reason: string;
+  readonly reason: string;
   /** Strategy-defined tags. `signalMeta` is the only key the engine reads. */
-  tags?: {
-    signalMeta?: StrategySignalMeta;
-    [key: string]: unknown;
+  readonly tags?: {
+    readonly signalMeta?: StrategySignalMeta;
+    readonly [key: string]: unknown;
   };
 }
 
@@ -1104,11 +1104,11 @@ export interface OrderIntent {
  */
 export interface OrderRequest extends OrderIntent {
   /** ULID assigned by the OrderManager before submission. */
-  requestId: string;
-  sizeApproved: number;
-  riskDecisionId: string;
+  readonly requestId: string;
+  readonly sizeApproved: number;
+  readonly riskDecisionId: string;
   /** Lineage pointer for splits / hedges / slices. */
-  parentIntentId?: string;
+  readonly parentIntentId?: string;
 }
 
 /** Order lifecycle states. */
@@ -1137,13 +1137,13 @@ export const ORDER_STATUSES = [
  * Most fills produce both.
  */
 export interface OrderEvent {
-  requestId: string;
-  intentId: string;
-  ctx: RunContext;
-  status: OrderStatus;
-  remainingSize: number;
-  ts: Timestamp;
-  reason?: string;
+  readonly requestId: string;
+  readonly intentId: string;
+  readonly ctx: RunContext;
+  readonly status: OrderStatus;
+  readonly remainingSize: number;
+  readonly ts: Timestamp;
+  readonly reason?: string;
 }
 
 export type FillStatus = 'partial' | 'filled' | 'rejected' | 'cancelled' | 'expired';
@@ -1161,20 +1161,20 @@ export const FILL_STATUSES = [
  * `tsReceived` and the venue-side `tsExchange` for ordering.
  */
 export interface FillEvent {
-  fillId: string;
-  intentId: string;
-  requestId: string;
-  ctx: RunContext;
-  venue: Venue;
-  symbol: Symbol;
-  tsExchange: Timestamp;
-  tsReceived: Timestamp;
-  status: FillStatus;
-  filledSize: number;
-  remainingSize: number;
-  avgPrice: number;
-  feesPaid: number;
-  reason?: string;
+  readonly fillId: string;
+  readonly intentId: string;
+  readonly requestId: string;
+  readonly ctx: RunContext;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
+  readonly tsExchange: Timestamp;
+  readonly tsReceived: Timestamp;
+  readonly status: FillStatus;
+  readonly filledSize: number;
+  readonly remainingSize: number;
+  readonly avgPrice: number;
+  readonly feesPaid: number;
+  readonly reason?: string;
 }
 ```
 
@@ -1301,13 +1301,13 @@ import type { OutcomeToken, Symbol, Timestamp, Venue } from './primitives.js';
  * of the same market; for non-binary venues `outcome` is omitted.
  */
 export interface PositionState {
-  venue: Venue;
-  symbol: Symbol;
-  outcome?: OutcomeToken;
-  qty: number;
-  avgCost: number;
-  realizedPnl: number;
-  unrealizedPnl: number;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
+  readonly outcome?: OutcomeToken;
+  readonly qty: number;
+  readonly avgCost: number;
+  readonly realizedPnl: number;
+  readonly unrealizedPnl: number;
 }
 
 /**
@@ -1319,12 +1319,12 @@ export interface PositionState {
  * map key is `${venue}:${symbol}:${outcome ?? ''}`.
  */
 export interface PortfolioState {
-  ctx: RunContext;
-  ts: Timestamp;
-  cashUsd: number;
-  positions: ReadonlyMap<string, PositionState>;
-  equity: number;
-  dayStartEquity: number;
+  readonly ctx: RunContext;
+  readonly ts: Timestamp;
+  readonly cashUsd: number;
+  readonly positions: ReadonlyMap<string, PositionState>;
+  readonly equity: number;
+  readonly dayStartEquity: number;
 }
 ```
 
@@ -1871,9 +1871,9 @@ import type { StrategyId, Timestamp, Venue } from './primitives.js';
  * `reason` is always present so the persisted audit row never has a null reason.
  */
 export interface RiskCheck {
-  pass: boolean;
-  size: number;
-  reason: string;
+  readonly pass: boolean;
+  readonly size: number;
+  readonly reason: string;
 }
 
 /**
@@ -1896,13 +1896,13 @@ export interface RiskRule {
  * reason, or `'ok'` if every rule passed.
  */
 export interface RiskDecision {
-  decisionId: string;
-  ctx: RunContext;
-  intentId: string;
-  approved: boolean;
-  sizeApproved: number;
-  reason: string;
-  ts: Timestamp;
+  readonly decisionId: string;
+  readonly ctx: RunContext;
+  readonly intentId: string;
+  readonly approved: boolean;
+  readonly sizeApproved: number;
+  readonly reason: string;
+  readonly ts: Timestamp;
 }
 
 /**
@@ -2245,12 +2245,12 @@ import type { Timestamp } from './primitives.js';
  * every lifecycle event, and the current rolled-up status.
  */
 export interface OrderLineage {
-  intent: OrderIntent;
-  requests: ReadonlyArray<OrderRequest>;
-  fills: ReadonlyArray<FillEvent>;
-  events: ReadonlyArray<OrderEvent>;
-  status: OrderStatus;
-  remainingSize: number;
+  readonly intent: OrderIntent;
+  readonly requests: ReadonlyArray<OrderRequest>;
+  readonly fills: ReadonlyArray<FillEvent>;
+  readonly events: ReadonlyArray<OrderEvent>;
+  readonly status: OrderStatus;
+  readonly remainingSize: number;
 }
 
 export interface OrderManager {
