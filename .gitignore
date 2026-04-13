@@ -26,3 +26,8 @@ venv/
 
 # Git worktrees (subagent-driven plan execution)
 .worktrees/
+
+# trade-arbiter monorepo build outputs
+trade-arbiter/node_modules/
+trade-arbiter/**/dist/
+trade-arbiter/**/*.tsbuildinfo
