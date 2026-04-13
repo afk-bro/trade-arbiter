@@ -790,10 +790,10 @@ import type { Side, Symbol, Timestamp, Venue } from './primitives.js';
  * timestamp at the moment the event was enqueued.
  */
 export interface EngineEvent<T> {
-  eventId: string;
-  ctx: RunContext;
-  ts: Timestamp;
-  payload: T;
+  readonly eventId: string;
+  readonly ctx: RunContext;
+  readonly ts: Timestamp;
+  readonly payload: T;
 }
 
 /** Discriminator for the MarketEvent union. */
@@ -805,7 +805,14 @@ export type MarketEventType =
   | 'funding'
   | 'oracle';
 
-/** Runtime list of every MarketEventType. */
+/**
+ * Runtime list of every MarketEventType.
+ *
+ * NOTE: `'funding'` and `'oracle'` are reserved discriminators with no payload
+ * interface in v1 — they are present here so adapter routing tables built from
+ * this array include them when those types are wired up. Iterators over this
+ * array will see kinds that the `MarketEvent` union does not yet cover.
+ */
 export const MARKET_EVENT_TYPES = [
   'quote',
   'trade',
