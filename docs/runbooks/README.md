@@ -6,7 +6,7 @@ A runbook is the document you reach for when something is happening **right now*
 
 ## When to write one
 
-- You hit an incident and had to figure out the recovery from scratch — write the runbook **after** so the next person doesn't
+- You hit an incident and had to figure out the recovery from scratch — write the runbook **after** so the next person doesn't have to
 - You're about to perform a high-stakes operation (live arming, kill switch reset, credential rotation) and want a checklist you trust
 - An operation is performed often enough that the steps are starting to drift across attempts
 

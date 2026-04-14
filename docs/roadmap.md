@@ -4,7 +4,7 @@
 
 ## Status legend
 
-- `shipped` — merged to master
+- `shipped` — merged to the default branch
 - `in flight` — PR open or branch active
 - `queued` — planned, not started
 - `frozen` — deferred indefinitely

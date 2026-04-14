@@ -67,4 +67,4 @@ One paragraph each:
 - [overview.md](overview.md)
 - [contracts/](contracts/) — interface boundaries between the components above
 - [decisions/](decisions/) — architectural decisions and their rationales
-- [`../docs/superpowers/specs/2026-04-12-trade-arbiter-design.md`](superpowers/specs/2026-04-12-trade-arbiter-design.md) — foundational design spec
+- [`superpowers/specs/2026-04-12-trade-arbiter-design.md`](superpowers/specs/2026-04-12-trade-arbiter-design.md) — foundational design spec
