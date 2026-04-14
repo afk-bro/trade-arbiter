@@ -4,6 +4,10 @@
 
 ## Component inventory
 
+![Component inventory — four surfaces around one engine core](diagrams/component-inventory.png)
+
+Source: [`diagrams/component-inventory.excalidraw`](diagrams/component-inventory.excalidraw). Rendered via the excalidraw skill's playwright pipeline — edit the `.excalidraw` and re-run the renderer to regenerate the PNG.
+
 <!--
 Bulleted list of every internal component with a one-line role.
 Each entry should link to its contract in `contracts/<name>.md`.
