@@ -11,16 +11,16 @@
 
 ## Plans
 
-| # | Title | Status | Plan doc | PR |
-|---|-------|--------|----------|----|
-| 1 | Core contracts and scaffold | in flight | [`superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md`](superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md) | [#1](https://github.com/afk-bro/trade-arbiter/pull/1) |
-| 2 | Engine runtime | queued | — | — |
-| 3 | First strategy + lint rule | queued | — | — |
-| 4 | First venue adapter (paper) | queued | — | — |
-| 5 | Persistence layer | queued | — | — |
-| 6 | Admin service + dashboard | queued | — | — |
-| 7 | Live arming + kill switch wiring | queued | — | — |
-| 8 | Python sidecar for analytics | queued | — | — |
+| # | Title | Status | Completed | Plan doc | Link |
+|---|-------|--------|-----------|----------|------|
+| 1 | Core contracts and scaffold | shipped | 2026-04-13 | [`superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md`](superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md) | [PR #1](https://github.com/afk-bro/trade-arbiter/pull/1) |
+| 2 | Engine runtime | queued | — | — | — |
+| 3 | First strategy + lint rule | queued | — | — | — |
+| 4 | First venue adapter (paper) | queued | — | — | — |
+| 5 | Persistence layer | queued | — | — | — |
+| 6 | Admin service + dashboard | queued | — | — | — |
+| 7 | Live arming + kill switch wiring | queued | — | — | — |
+| 8 | Python sidecar for analytics | queued | — | — | — |
 
 <!-- Add rows as plans are written. Plan numbers are stable — never renumber. -->
 
