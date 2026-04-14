@@ -219,21 +219,13 @@ cd trade-arbiter && npm install && cd ..
 
 Expected: `added N packages` (N is some small number — typescript, tsx, @types/node and their transitive deps). A `package-lock.json` is created. No errors. The directory `trade-arbiter/node_modules/` exists.
 
-- [ ] **Step 6: Confirm typecheck and test scripts run as no-ops**
+- [ ] **Step 6: Skip the no-op verification — deferred to Task 2**
 
-Run from `arbitrage_trading/`:
+**npm 11 regression note:** On npm ≥ 11, `npm run <script> --workspaces --if-present` errors with `No workspaces found!` and exit 1 when the `packages/*` glob matches nothing — `--if-present` only suppresses missing per-package scripts, not an empty workspace set. Plan 1 was originally written assuming npm 10 behavior where this returned 0.
 
-```bash
-cd trade-arbiter && npm run typecheck && cd ..
-```
+Do not attempt a no-op verification here. Both `npm run typecheck` and `npm test` will fail until at least one workspace package exists. Task 2 creates `packages/core/` and the same scripts will then succeed end-to-end — that is where workspace plumbing is verified.
 
-Expected: prints `> trade-arbiter@0.0.0 typecheck` then nothing else (no workspaces yet). Exit code 0.
-
-```bash
-cd trade-arbiter && npm test && cd ..
-```
-
-Expected: same — no workspaces means nothing to run. Exit code 0.
+Do **not** introduce a `|| true` workaround in the workspace scripts. It would always return 0 and silently mask real typecheck/test failures once packages exist. Leave the scripts as written in Step 2.
 
 - [ ] **Step 7: Commit**
 
@@ -601,10 +593,10 @@ import type { ConfigHash, Mode, RunId, StrategyId, Timestamp } from './primitive
  * envelope and every persisted row carries one of these.
  */
 export interface RunContext {
-  runId: RunId;
-  strategyId: StrategyId;
-  configHash: ConfigHash;
-  mode: Mode;
+  readonly runId: RunId;
+  readonly strategyId: StrategyId;
+  readonly configHash: ConfigHash;
+  readonly mode: Mode;
 }
 
 /**
@@ -798,10 +790,10 @@ import type { Side, Symbol, Timestamp, Venue } from './primitives.js';
  * timestamp at the moment the event was enqueued.
  */
 export interface EngineEvent<T> {
-  eventId: string;
-  ctx: RunContext;
-  ts: Timestamp;
-  payload: T;
+  readonly eventId: string;
+  readonly ctx: RunContext;
+  readonly ts: Timestamp;
+  readonly payload: T;
 }
 
 /** Discriminator for the MarketEvent union. */
@@ -813,7 +805,14 @@ export type MarketEventType =
   | 'funding'
   | 'oracle';
 
-/** Runtime list of every MarketEventType. */
+/**
+ * Runtime list of every MarketEventType.
+ *
+ * NOTE: `'funding'` and `'oracle'` are reserved discriminators with no payload
+ * interface in v1 — they are present here so adapter routing tables built from
+ * this array include them when those types are wired up. Iterators over this
+ * array will see kinds that the `MarketEvent` union does not yet cover.
+ */
 export const MARKET_EVENT_TYPES = [
   'quote',
   'trade',
@@ -1063,10 +1062,10 @@ import type { OutcomeToken, Side, Symbol, Timestamp, Venue } from './primitives.
  */
 export interface StrategySignalMeta {
   /** Expected price edge in venue units, e.g. 0.03 = 3c on a $1 binary. */
-  expectedEdge?: number;
-  variance?: number;
+  readonly expectedEdge?: number;
+  readonly variance?: number;
   /** Confidence in [0, 1]. */
-  confidence?: number;
+  readonly confidence?: number;
 }
 
 /**
@@ -1075,24 +1074,24 @@ export interface StrategySignalMeta {
  */
 export interface OrderIntent {
   /** Strategy-generated; idempotent so retries do not duplicate. */
-  intentId: string;
-  ctx: RunContext;
-  tsCreated: Timestamp;
-  venue: Venue;
-  symbol: Symbol;
+  readonly intentId: string;
+  readonly ctx: RunContext;
+  readonly tsCreated: Timestamp;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
   /** Required for binary prediction markets, omitted for non-binary venues. */
-  outcome?: OutcomeToken;
-  side: Side;
-  sizeRequested: number;
+  readonly outcome?: OutcomeToken;
+  readonly side: Side;
+  readonly sizeRequested: number;
   /** Limit price; omit for market orders. */
-  priceLimit?: number;
-  timeInForce: 'GTC' | 'IOC' | 'FOK' | 'FAK';
+  readonly priceLimit?: number;
+  readonly timeInForce: 'GTC' | 'IOC' | 'FOK' | 'FAK';
   /** Free-text reason emitted by the strategy; ends up in audit rows. */
-  reason: string;
+  readonly reason: string;
   /** Strategy-defined tags. `signalMeta` is the only key the engine reads. */
-  tags?: {
-    signalMeta?: StrategySignalMeta;
-    [key: string]: unknown;
+  readonly tags?: {
+    readonly signalMeta?: StrategySignalMeta;
+    readonly [key: string]: unknown;
   };
 }
 
@@ -1105,11 +1104,11 @@ export interface OrderIntent {
  */
 export interface OrderRequest extends OrderIntent {
   /** ULID assigned by the OrderManager before submission. */
-  requestId: string;
-  sizeApproved: number;
-  riskDecisionId: string;
+  readonly requestId: string;
+  readonly sizeApproved: number;
+  readonly riskDecisionId: string;
   /** Lineage pointer for splits / hedges / slices. */
-  parentIntentId?: string;
+  readonly parentIntentId?: string;
 }
 
 /** Order lifecycle states. */
@@ -1138,13 +1137,13 @@ export const ORDER_STATUSES = [
  * Most fills produce both.
  */
 export interface OrderEvent {
-  requestId: string;
-  intentId: string;
-  ctx: RunContext;
-  status: OrderStatus;
-  remainingSize: number;
-  ts: Timestamp;
-  reason?: string;
+  readonly requestId: string;
+  readonly intentId: string;
+  readonly ctx: RunContext;
+  readonly status: OrderStatus;
+  readonly remainingSize: number;
+  readonly ts: Timestamp;
+  readonly reason?: string;
 }
 
 export type FillStatus = 'partial' | 'filled' | 'rejected' | 'cancelled' | 'expired';
@@ -1162,20 +1161,20 @@ export const FILL_STATUSES = [
  * `tsReceived` and the venue-side `tsExchange` for ordering.
  */
 export interface FillEvent {
-  fillId: string;
-  intentId: string;
-  requestId: string;
-  ctx: RunContext;
-  venue: Venue;
-  symbol: Symbol;
-  tsExchange: Timestamp;
-  tsReceived: Timestamp;
-  status: FillStatus;
-  filledSize: number;
-  remainingSize: number;
-  avgPrice: number;
-  feesPaid: number;
-  reason?: string;
+  readonly fillId: string;
+  readonly intentId: string;
+  readonly requestId: string;
+  readonly ctx: RunContext;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
+  readonly tsExchange: Timestamp;
+  readonly tsReceived: Timestamp;
+  readonly status: FillStatus;
+  readonly filledSize: number;
+  readonly remainingSize: number;
+  readonly avgPrice: number;
+  readonly feesPaid: number;
+  readonly reason?: string;
 }
 ```
 
@@ -1302,13 +1301,13 @@ import type { OutcomeToken, Symbol, Timestamp, Venue } from './primitives.js';
  * of the same market; for non-binary venues `outcome` is omitted.
  */
 export interface PositionState {
-  venue: Venue;
-  symbol: Symbol;
-  outcome?: OutcomeToken;
-  qty: number;
-  avgCost: number;
-  realizedPnl: number;
-  unrealizedPnl: number;
+  readonly venue: Venue;
+  readonly symbol: Symbol;
+  readonly outcome?: OutcomeToken;
+  readonly qty: number;
+  readonly avgCost: number;
+  readonly realizedPnl: number;
+  readonly unrealizedPnl: number;
 }
 
 /**
@@ -1320,12 +1319,12 @@ export interface PositionState {
  * map key is `${venue}:${symbol}:${outcome ?? ''}`.
  */
 export interface PortfolioState {
-  ctx: RunContext;
-  ts: Timestamp;
-  cashUsd: number;
-  positions: ReadonlyMap<string, PositionState>;
-  equity: number;
-  dayStartEquity: number;
+  readonly ctx: RunContext;
+  readonly ts: Timestamp;
+  readonly cashUsd: number;
+  readonly positions: ReadonlyMap<string, PositionState>;
+  readonly equity: number;
+  readonly dayStartEquity: number;
 }
 ```
 
@@ -1496,13 +1495,13 @@ export interface Logger {
  * and immutable; emit() is the only way to produce intents.
  */
 export interface StrategyContext {
-  clock: EngineClock;
-  ctx: RunContext;
+  readonly clock: EngineClock;
+  readonly ctx: RunContext;
   /** Pull-based, immutable snapshot. */
   portfolio(): Readonly<PortfolioState>;
   /** Validated against the strategy-specific zod schema before init. */
-  config: unknown;
-  logger: Logger;
+  readonly config: unknown;
+  readonly logger: Logger;
   /** Submits an intent to the risk layer. Synchronous; no return value. */
   emit(intent: OrderIntent): void;
 }
@@ -1872,9 +1871,9 @@ import type { StrategyId, Timestamp, Venue } from './primitives.js';
  * `reason` is always present so the persisted audit row never has a null reason.
  */
 export interface RiskCheck {
-  pass: boolean;
-  size: number;
-  reason: string;
+  readonly pass: boolean;
+  readonly size: number;
+  readonly reason: string;
 }
 
 /**
@@ -1897,13 +1896,13 @@ export interface RiskRule {
  * reason, or `'ok'` if every rule passed.
  */
 export interface RiskDecision {
-  decisionId: string;
-  ctx: RunContext;
-  intentId: string;
-  approved: boolean;
-  sizeApproved: number;
-  reason: string;
-  ts: Timestamp;
+  readonly decisionId: string;
+  readonly ctx: RunContext;
+  readonly intentId: string;
+  readonly approved: boolean;
+  readonly sizeApproved: number;
+  readonly reason: string;
+  readonly ts: Timestamp;
 }
 
 /**
@@ -2246,12 +2245,12 @@ import type { Timestamp } from './primitives.js';
  * every lifecycle event, and the current rolled-up status.
  */
 export interface OrderLineage {
-  intent: OrderIntent;
-  requests: ReadonlyArray<OrderRequest>;
-  fills: ReadonlyArray<FillEvent>;
-  events: ReadonlyArray<OrderEvent>;
-  status: OrderStatus;
-  remainingSize: number;
+  readonly intent: OrderIntent;
+  readonly requests: ReadonlyArray<OrderRequest>;
+  readonly fills: ReadonlyArray<FillEvent>;
+  readonly events: ReadonlyArray<OrderEvent>;
+  readonly status: OrderStatus;
+  readonly remainingSize: number;
 }
 
 export interface OrderManager {
@@ -2432,39 +2431,47 @@ import type { RunId, StrategyId, Timestamp } from './primitives.js';
  * receiving controller to route it without further lookup.
  */
 export type AdminCommand =
-  | { kind: 'health' }
-  | { kind: 'list_runs' }
-  | { kind: 'show_run'; runId: RunId }
-  | { kind: 'pause_strategy'; runId: RunId; strategyId: StrategyId }
-  | { kind: 'resume_strategy'; runId: RunId; strategyId: StrategyId }
-  | { kind: 'kill'; reason: string }
-  | { kind: 'reset_kill_switch'; reason: string }
+  | { readonly kind: 'health' }
+  | { readonly kind: 'list_runs' }
+  | { readonly kind: 'show_run'; readonly runId: RunId }
+  | { readonly kind: 'pause_strategy'; readonly runId: RunId; readonly strategyId: StrategyId }
+  | { readonly kind: 'resume_strategy'; readonly runId: RunId; readonly strategyId: StrategyId }
+  | { readonly kind: 'kill'; readonly reason: string }
+  | { readonly kind: 'reset_kill_switch'; readonly reason: string }
   | {
-      kind: 'arm_live';
-      runId: RunId;
-      strategyId: StrategyId;
+      readonly kind: 'arm_live';
+      readonly runId: RunId;
+      readonly strategyId: StrategyId;
       /** Must equal `strategyId` — protects against fat-fingered dashboard clicks. */
-      confirmation: string;
+      readonly confirmation: string;
     }
-  | { kind: 'disarm_live'; runId: RunId; strategyId: StrategyId };
+  | { readonly kind: 'disarm_live'; readonly runId: RunId; readonly strategyId: StrategyId };
 
 /** Discriminator string of every AdminCommand variant. */
 export type AdminCommandKind = AdminCommand['kind'];
 
 export interface AdminResponse<T = unknown> {
-  ok: boolean;
-  ts: Timestamp;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
+  readonly ok: boolean;
+  readonly ts: Timestamp;
+  readonly data?: T;
+  readonly error?: {
+    readonly code: string;
+    readonly message: string;
   };
 }
 
 export interface AdminService {
   start(): Promise<void>;
   stop(): Promise<void>;
-  handle<T = unknown>(cmd: AdminCommand): Promise<AdminResponse<T>>;
+  /**
+   * Returns `Promise<AdminResponse>` (i.e. `AdminResponse<unknown>`) rather
+   * than a caller-chosen generic `Promise<AdminResponse<T>>`. The generic
+   * form would say the *caller* picks `T`, but no implementation can return
+   * a value of `AdminResponse<T>` for arbitrary `T`. Callers narrow on
+   * `cmd.kind` and cast `data` at the call site if they need a concrete
+   * shape.
+   */
+  handle(cmd: AdminCommand): Promise<AdminResponse>;
 }
 
 /**
