@@ -21,6 +21,7 @@ Use [`0000-template.md`](0000-template.md). Title format: `NNNN-kebab-case-title
 
 ## Index
 
-<!-- Newest first.
-- [trade-arbiter design spec](../superpowers/specs/2026-04-12-trade-arbiter-design.md) — foundational design (lives in superpowers/)
--->
+Newest first.
+
+- [0001-core-contracts-and-monorepo-scaffold.md](0001-core-contracts-and-monorepo-scaffold.md) — Retro PRD for Plan 1: types-only `@trade-arbiter/core` package, npm-workspaces monorepo, green CI. Shipped.
+- [trade-arbiter design spec](../superpowers/specs/2026-04-12-trade-arbiter-design.md) — foundational design (lives in `superpowers/specs/`, not duplicated here).
