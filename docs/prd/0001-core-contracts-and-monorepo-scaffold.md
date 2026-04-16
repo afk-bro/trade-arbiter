@@ -58,7 +58,7 @@ Numbered and tagged `[must]`, `[should]`, or `[nice]`. Each item is independentl
 4. **[must]** `packages/core/package.json` lists zero entries under `dependencies`. Only `devDependencies` (TypeScript, tsx, @types/node) are permitted.
 5. **[must]** The TypeScript compiler runs in `strict` mode with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, and `verbatimModuleSyntax` all enabled via `tsconfig.base.json`.
 6. **[must]** Module resolution uses NodeNext and source files import siblings with `.js` extensions (resolved to `.ts` at typecheck time and at runtime by `tsx`).
-7. **[must]** A GitHub Actions workflow at `.github/workflows/ci.yml` runs `npm ci && npm run ci` on every pull request and push to `master`, and merges are gated on it passing.
+7. **[must]** A GitHub Actions workflow at `trade-arbiter/.github/workflows/ci.yml` runs `npm ci && npm run ci` on every pull request and push to `master`, and merges are gated on it passing.
 8. **[must]** Every contract file under `packages/core/src/` has a matching `test/*.test.ts` compile-check test that constructs a literal of each exported type.
 9. **[should]** Contract files are split by responsibility (primitives, context, events, intents, portfolio, strategy, adapter, risk, bus, order-manager, admin) rather than one monolithic `types.ts` — so edits remain local and reviewable.
 10. **[should]** Runtime constants (`MODES`, `VENUES`, `MARKET_EVENT_TYPES`, `ORDER_STATUSES`, `FILL_STATUSES`) use the `as const satisfies readonly T[]` pattern and each has a runtime-assertion test over its exact contents.
