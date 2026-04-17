@@ -87,6 +87,7 @@ test('public surface exposes every interface as a named type', () => {
     MarketEvent: core.MarketEvent;
     OrderBookEvent: core.OrderBookEvent;
     PnlEvent: core.PnlEvent;
+    PnlSnapshot: core.PnlSnapshot;
     QuoteEvent: core.QuoteEvent;
     TradeEvent: core.TradeEvent;
     // intents

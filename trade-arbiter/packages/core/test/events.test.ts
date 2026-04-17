@@ -149,3 +149,32 @@ test('PnlEvent compile shape — snapshot-triggered', () => {
   };
   void ev;
 });
+
+import type { PnlSnapshot } from '../src/index.js';
+
+test('PnlSnapshot compile shape — populated positions', () => {
+  const snap: PnlSnapshot = {
+    type: 'pnl_snapshot',
+    strategyId: 'strat-001',
+    positions: [
+      { symbol: 'HYPE-PERP', qty: 1, avgEntry: 100.5, markPrice: 101.2 },
+      { symbol: 'ETH-PERP', qty: -2, avgEntry: 3500, markPrice: 3495 },
+    ],
+    realizedCumulative: 12.5,
+    unrealizedTotal: 1.4,
+    currency: 'USDC',
+  };
+  void snap;
+});
+
+test('PnlSnapshot compile shape — empty positions', () => {
+  const snap: PnlSnapshot = {
+    type: 'pnl_snapshot',
+    strategyId: 'strat-001',
+    positions: [],
+    realizedCumulative: 0,
+    unrealizedTotal: 0,
+    currency: 'USDC',
+  };
+  void snap;
+});
