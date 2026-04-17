@@ -1,8 +1,8 @@
 {
-  "name": "@trade-arbiter/core",
+  "name": "@trade-arbiter/engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Type contracts shared by all trade-arbiter packages. Zero runtime dependencies.",
+  "description": "Event loop, bus, queue, risk manager, order manager, portfolio updater, pnl snapshotter, audit writer. Library, not a process.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -15,5 +15,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@trade-arbiter/core": "*"
   }
 }

@@ -1,6 +1,8 @@
 # Trade Arbiter — Roadmap
 
 > Plan-by-plan delivery schedule. Update when a plan starts, ships, or slips.
+>
+> Structure follows the re-planned roadmap in [`superpowers/specs/2026-04-17-roadmap-revision-and-backtest-vertical-slice-design.md`](superpowers/specs/2026-04-17-roadmap-revision-and-backtest-vertical-slice-design.md), which integrates the 8 improvements from [`polymarket-bot-comparison.md`](polymarket-bot-comparison.md).
 
 ## Status legend
 
@@ -14,25 +16,24 @@
 | # | Title | Status | Completed | Plan doc | Link |
 |---|-------|--------|-----------|----------|------|
 | 1 | Core contracts and scaffold | shipped | 2026-04-13 | [`superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md`](superpowers/plans/2026-04-13-01-core-contracts-and-scaffold.md) | [PR #1](https://github.com/afk-bro/trade-arbiter/pull/1) |
-| 2 | Engine runtime | queued | — | — | — |
-| 3 | First strategy + lint rule | queued | — | — | — |
-| 4 | First venue adapter (paper) | queued | — | — | — |
-| 5 | Persistence layer | queued | — | — | — |
-| 6 | Admin service + dashboard | queued | — | — | — |
-| 7 | Live arming + kill switch wiring | queued | — | — | — |
-| 8 | Python sidecar for analytics | queued | — | — | — |
+| 2 | Engine runtime + observability | in flight | — | [`superpowers/plans/2026-04-17-02-engine-runtime-and-observability.md`](superpowers/plans/2026-04-17-02-engine-runtime-and-observability.md) | — |
+| 3 | Synthetic backtest vertical slice | queued | — | — | — |
+| 4 | First real strategy (MA crossover) | queued | — | — | — |
+| 5 | Hyperliquid recorded-data adapter | queued | — | — | — |
+| 6 | Persistence (SQLite + Parquet) | queued | — | — | — |
+| 7 | Admin service + kill switch + safe defaults | queued | — | — | — |
+| 8 | Prediction-market contract extensions | queued | — | — | — |
+| 9 | Live arming | queued | — | — | — |
+| 10 | Python analytics sidecar | queued | — | — | — |
 
 <!-- Add rows as plans are written. Plan numbers are stable — never renumber. -->
 
 ## Milestones
 
-<!--
-Higher-level groupings of plans:
-- v0.1 — paper trading on one venue (Plans 1-4)
-- v0.2 — multi-venue replay with persistence (Plans 1-5)
-- v0.3 — live trading with admin surface (Plans 1-7)
-- v1.0 — analytics sidecar + dashboard (all plans)
--->
+- **v0.1 — green end-to-end backtest.** Reached at the end of Plan 3. Synthetic data → deterministic bus → JSONL audit → PnL. Validates the engine foundations.
+- **v0.2 — replayable runs with persistence.** Reached at the end of Plan 6. SQLite + Parquet back the audit stream.
+- **v0.3 — live trading gated.** Reached at the end of Plan 9. `arm_live` flipped; Hyperliquid orders flow.
+- **v1.0 — analytics sidecar.** Reached at the end of Plan 10.
 
 ## Decision log pointer
 

@@ -14,3 +14,4 @@ export * from './risk.js';
 export * from './bus.js';
 export * from './order-manager.js';
 export * from './admin.js';
+export * from './audit.js';

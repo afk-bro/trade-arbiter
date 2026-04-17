@@ -3,7 +3,7 @@
  * Sections 4.3 and 4.4 of the design spec.
  */
 import type { RunContext } from './context.js';
-import type { Side, Symbol, Timestamp, Venue } from './primitives.js';
+import type { Side, StrategyId, Symbol, Timestamp, Venue } from './primitives.js';
 
 /**
  * Generic envelope wrapping every payload that flows on the bus / queue.
@@ -99,3 +99,49 @@ export interface CandleEvent extends BaseMarketEvent {
  * are ported. Until then, the discriminator is reserved.
  */
 export type MarketEvent = QuoteEvent | TradeEvent | OrderBookEvent | CandleEvent;
+
+/**
+ * Realized + unrealized P&L state emitted on every fill and on every
+ * snapshot tick. `triggeredBy` distinguishes fill-driven from periodic
+ * emissions. `currency` is venue-native (e.g., 'USDC' for Hyperliquid perps).
+ * Not a variant of the `MarketEvent` union — PnlEvent flows on the bus
+ * under its own event-type key.
+ */
+export interface PnlEvent {
+  readonly type: 'pnl';
+  readonly strategyId: StrategyId;
+  readonly symbol: Symbol;
+  readonly realizedDelta: number;
+  readonly realizedCumulative: number;
+  readonly unrealizedMark: number;
+  readonly currency: string;
+  readonly triggeredBy: 'fill' | 'snapshot';
+}
+
+/**
+ * Periodic mark-to-market of all open positions for one strategy. Emitted
+ * on engine-clock intervals (not wall-clock). The `positions` array
+ * iterates positions in insertion order; this is deterministic by the
+ * `PortfolioState.positions` insertion-order invariant.
+ *
+ * Not a variant of the `MarketEvent` union — flows on the bus under its
+ * own event-type key. No `venue` field: PnL is aggregated per
+ * strategy+symbol across all venues (mirrors PnlEvent).
+ */
+export interface PnlSnapshot {
+  readonly type: 'pnl_snapshot';
+  readonly strategyId: StrategyId;
+  /** Open positions at snapshot time. Empty when the strategy has no position. */
+  readonly positions: ReadonlyArray<{
+    readonly symbol: Symbol;
+    readonly qty: number;
+    readonly avgEntry: number;
+    readonly markPrice: number;
+  }>;
+  /** Run-to-date realized P&L for this strategy. Matches `PnlEvent.realizedCumulative` at the latest fill. */
+  readonly realizedCumulative: number;
+  /** Sum of (markPrice − avgEntry) × qty across all open positions. */
+  readonly unrealizedTotal: number;
+  /** Venue-native currency string, same value as the strategy's PnlEvents. No `Currency` type alias in v1. */
+  readonly currency: string;
+}

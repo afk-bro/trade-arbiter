@@ -13,6 +13,8 @@ test('public surface exports all runtime constants', () => {
   assert.equal(core.ORDER_STATUSES.length, 7);
   assert.ok(Array.isArray(core.FILL_STATUSES), 'FILL_STATUSES exported');
   assert.equal(core.FILL_STATUSES.length, 5);
+  assert.ok(Array.isArray(core.AUDIT_KINDS), 'AUDIT_KINDS exported');
+  assert.equal(core.AUDIT_KINDS.length, 8);
 });
 
 test('public surface accepts a synthetic intent → request → fill round trip', () => {
@@ -83,11 +85,13 @@ test('public surface exposes every interface as a named type', () => {
     EngineEvent: core.EngineEvent<unknown>;
     MarketEventType: core.MarketEventType;
     BaseMarketEvent: core.BaseMarketEvent;
-    QuoteEvent: core.QuoteEvent;
-    TradeEvent: core.TradeEvent;
-    OrderBookEvent: core.OrderBookEvent;
     CandleEvent: core.CandleEvent;
     MarketEvent: core.MarketEvent;
+    OrderBookEvent: core.OrderBookEvent;
+    PnlEvent: core.PnlEvent;
+    PnlSnapshot: core.PnlSnapshot;
+    QuoteEvent: core.QuoteEvent;
+    TradeEvent: core.TradeEvent;
     // intents
     StrategySignalMeta: core.StrategySignalMeta;
     OrderIntent: core.OrderIntent;
@@ -125,6 +129,9 @@ test('public surface exposes every interface as a named type', () => {
     AdminResponse: core.AdminResponse;
     AdminService: core.AdminService;
     AdminTransport: core.AdminTransport;
+    // audit
+    AuditKind: core.AuditKind;
+    AuditRecord: core.AuditRecord;
   };
   // Use the type to prevent unused-locals lint from removing it.
   const _surface = null as unknown as Surface;
