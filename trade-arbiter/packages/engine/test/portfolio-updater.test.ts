@@ -87,3 +87,42 @@ test('zero-size fill does nothing', () => {
   assert.equal(pnl.unrealizedMark, 0);
   assert.equal(pnl.realizedDelta, 0);
 });
+
+test('buy-to-cover closes a short position and books PnL correctly', () => {
+  const pu = new PortfolioUpdater(1000, 'USDC');
+  // Open short: sell 2 at 100
+  pu.onFillDirected(mkFill({ filledSize: 2, avgPrice: 100 }), 'sell');
+  const cover = mkFill({
+    fillId: 'cover',
+    filledSize: 1,
+    avgPrice: 95,
+    feesPaid: 0,
+    remainingSize: 0,
+  });
+  // Cover 1 at 95: realizedDelta = (95 - 100) * 1 * (-1) - 0 = 5
+  const pnl = pu.onFillDirected(cover, 'buy');
+  assert.equal(pnl.realizedDelta, 5);
+  const p = pu.getPortfolio(1);
+  assert.equal(p.positions.get('hyperliquid:HYPE-PERP:')?.qty, -1);
+});
+
+test('position flip: closing fill larger than position opens opposite at fill price', () => {
+  const pu = new PortfolioUpdater(1000, 'USDC');
+  // Open long: buy 1 at 100
+  pu.onFillDirected(mkFill({ filledSize: 1, avgPrice: 100 }), 'buy');
+  // Sell 3 at 110 — closes the 1-unit long AND opens a 2-unit short at 110
+  const flip = mkFill({
+    fillId: 'flip',
+    filledSize: 3,
+    avgPrice: 110,
+    feesPaid: 0,
+    remainingSize: 0,
+  });
+  const pnl = pu.onFillDirected(flip, 'sell');
+  // Closing 1 unit long at 110: (110 - 100) * 1 * 1 - 0 = 10
+  assert.equal(pnl.realizedDelta, 10);
+  const p = pu.getPortfolio(1);
+  const pos = p.positions.get('hyperliquid:HYPE-PERP:');
+  assert.equal(pos?.qty, -2);
+  assert.equal(pos?.avgCost, 110);
+});
