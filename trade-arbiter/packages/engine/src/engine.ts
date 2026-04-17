@@ -7,6 +7,11 @@
  * Event topic names: 'market', 'intent', 'decision', 'request', 'order',
  * 'fill', 'pnl', 'snapshot'. These match the AuditKind union so audit
  * records can be emitted 1:1 with bus events.
+ *
+ * Note: `PnlSnapshot.type` is 'pnl_snapshot' but its bus topic and
+ * AuditKind are both 'snapshot'. A JSONL consumer doing
+ * `record.kind === record.payload.type` will fail for snapshot records —
+ * the payload discriminator and the routing key are decoupled by design.
  */
 import type {
   DataFeed,
@@ -55,6 +60,12 @@ export class Engine {
   private readonly portfolio: PortfolioUpdater;
   private readonly risk: DefaultRiskManager;
   private readonly snapshotter: PnlSnapshotter;
+  /**
+   * Accumulates AuditRecord lines during run(). Call `flushToString()` after
+   * `run()` resolves. Calling it mid-run returns the buffer so far and resets
+   * it; subsequent writes continue into the fresh buffer, so any later flush
+   * will not include records from before the mid-run call.
+   */
   readonly audit = new JsonlAuditWriter();
   private done = false;
 
