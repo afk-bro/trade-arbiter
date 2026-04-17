@@ -3,7 +3,7 @@
  * Sections 4.3 and 4.4 of the design spec.
  */
 import type { RunContext } from './context.js';
-import type { Side, Symbol, Timestamp, Venue } from './primitives.js';
+import type { Side, StrategyId, Symbol, Timestamp, Venue } from './primitives.js';
 
 /**
  * Generic envelope wrapping every payload that flows on the bus / queue.
@@ -99,3 +99,21 @@ export interface CandleEvent extends BaseMarketEvent {
  * are ported. Until then, the discriminator is reserved.
  */
 export type MarketEvent = QuoteEvent | TradeEvent | OrderBookEvent | CandleEvent;
+
+/**
+ * Realized + unrealized P&L state emitted on every fill and on every
+ * snapshot tick. `triggeredBy` distinguishes fill-driven from periodic
+ * emissions. `currency` is venue-native (e.g., 'USDC' for Hyperliquid perps).
+ * Not a variant of the `MarketEvent` union — PnlEvent flows on the bus
+ * under its own event-type key.
+ */
+export interface PnlEvent {
+  readonly type: 'pnl';
+  readonly strategyId: StrategyId;
+  readonly symbol: Symbol;
+  readonly realizedDelta: number;
+  readonly realizedCumulative: number;
+  readonly unrealizedMark: number;
+  readonly currency: string;
+  readonly triggeredBy: 'fill' | 'snapshot';
+}

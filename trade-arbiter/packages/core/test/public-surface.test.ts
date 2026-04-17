@@ -83,11 +83,12 @@ test('public surface exposes every interface as a named type', () => {
     EngineEvent: core.EngineEvent<unknown>;
     MarketEventType: core.MarketEventType;
     BaseMarketEvent: core.BaseMarketEvent;
-    QuoteEvent: core.QuoteEvent;
-    TradeEvent: core.TradeEvent;
-    OrderBookEvent: core.OrderBookEvent;
     CandleEvent: core.CandleEvent;
     MarketEvent: core.MarketEvent;
+    OrderBookEvent: core.OrderBookEvent;
+    PnlEvent: core.PnlEvent;
+    QuoteEvent: core.QuoteEvent;
+    TradeEvent: core.TradeEvent;
     // intents
     StrategySignalMeta: core.StrategySignalMeta;
     OrderIntent: core.OrderIntent;

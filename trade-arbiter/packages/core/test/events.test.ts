@@ -9,6 +9,7 @@ import type {
   TradeEvent,
   OrderBookEvent,
   CandleEvent,
+  PnlEvent,
 } from '../src/events.js';
 import { MARKET_EVENT_TYPES } from '../src/events.js';
 import type { RunContext } from '../src/context.js';
@@ -119,4 +120,32 @@ test('EngineEvent envelope wraps a payload with ctx and ts', () => {
     payload: { message: 'hi' },
   };
   assert.equal(ev.payload.message, 'hi');
+});
+
+test('PnlEvent compile shape — fill-triggered', () => {
+  const ev: PnlEvent = {
+    type: 'pnl',
+    strategyId: 'strat-001',
+    symbol: 'HYPE-PERP',
+    realizedDelta: 1.5,
+    realizedCumulative: 12.0,
+    unrealizedMark: -0.25,
+    currency: 'USDC',
+    triggeredBy: 'fill',
+  };
+  void ev;
+});
+
+test('PnlEvent compile shape — snapshot-triggered', () => {
+  const ev: PnlEvent = {
+    type: 'pnl',
+    strategyId: 'strat-001',
+    symbol: 'HYPE-PERP',
+    realizedDelta: 0,
+    realizedCumulative: 12.0,
+    unrealizedMark: 0.8,
+    currency: 'USDC',
+    triggeredBy: 'snapshot',
+  };
+  void ev;
 });
