@@ -10,6 +10,7 @@ import type {
   OrderBookEvent,
   CandleEvent,
   PnlEvent,
+  PnlSnapshot,
 } from '../src/events.js';
 import { MARKET_EVENT_TYPES } from '../src/events.js';
 import type { RunContext } from '../src/context.js';
@@ -149,8 +150,6 @@ test('PnlEvent compile shape — snapshot-triggered', () => {
   };
   void ev;
 });
-
-import type { PnlSnapshot } from '../src/index.js';
 
 test('PnlSnapshot compile shape — populated positions', () => {
   const snap: PnlSnapshot = {
