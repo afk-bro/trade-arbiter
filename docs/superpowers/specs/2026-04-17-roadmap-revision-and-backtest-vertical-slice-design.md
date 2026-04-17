@@ -115,7 +115,7 @@ This design does two things:
 | 2 | Market lifecycle events | Plan 8 | Only matters once a prediction-market venue is next |
 | 3 | Token redemption / settlement | Plan 8 | Same — crypto doesn't need it |
 | 4 | WebSocket resilience | Plan 5 | First plan that has a WebSocket |
-| 5 | Simulation-first defaults | Plan 7 | Part of the config/admin surface |
+| 5 | Simulation-first defaults | Plan 3 (CLI default) + Plan 7 (full admin surface) | Cheapest possible safe default lands with the CLI in Plan 3. The broader admin/arming surface is Plan 7. |
 | 6 | Append-only audit log | Plan 2 | Needed to observe backtest results |
 | 7 | PnL tracking / events | Plan 2 | Needed to measure backtest results |
 | 8 | Rate limiting / retries | Plan 5 | First plan that makes real API calls |
@@ -222,8 +222,12 @@ export interface AuditRecord<K extends AuditKind = AuditKind, P = unknown> {
 5. **[must]** Contract additions (`PnlEvent`, `PnlSnapshot`, `AuditRecord`,
    `AuditKind`) are exported from `@trade-arbiter/core` and covered by
    `public-surface.test.ts` and compile-check tests.
-6. **[must]** `npm run ci` at the workspace root exits 0.
-7. **[should]** Engine package has zero runtime dependencies beyond
+6. **[must]** The engine satisfies the Determinism contract below: ID
+   generation is counter-based in backtest modes; JSONL serialization uses
+   sorted keys, LF, no extraneous whitespace; floats are formatted by the
+   engine's fixed formatter. Each requirement has a dedicated unit test.
+7. **[must]** `npm run ci` at the workspace root exits 0.
+8. **[should]** Engine package has zero runtime dependencies beyond
    `@trade-arbiter/core`.
 
 ## Plan 3 shape — Synthetic backtest vertical slice
@@ -272,21 +276,61 @@ strategy:
   closeEventIdx: 900
 ```
 
+### Safe defaults (CLI contract)
+
+- **Default mode is `backtest_l1`.** If a config file omits `run.mode`, or
+  if the CLI is invoked without a config file and with no flags, the engine
+  runs in `backtest_l1`. Any other mode — `backtest_l2`, `paper`, `live` —
+  must be selected by an explicit config entry or explicit flag. There is no
+  code path where a missing/malformed config advances past `backtest_l1`.
+- **No implicit `paper` or `live` arming.** The CLI refuses to start in
+  `paper` or `live` mode without both (a) an explicit mode declaration in
+  the resolved config, and (b) in Plan 7+, the `arm_live` gate flipped.
+  Plan 3 only needs to enforce (a); (b) is Plan 7's job. But the default
+  path must never silently select a non-backtest mode.
+- **Rationale.** This is the cheapest possible slice of improvement #5
+  (simulation-first defaults) from the comparison doc, locked in at the
+  CLI's entry point. It costs ~5 lines in Plan 3 and closes a footgun that
+  every later plan would otherwise need to redefend.
+
+### Integration fixtures
+
+Two fixtures ship with Plan 3:
+
+1. **`fixtures/minimal.yaml`** — one round trip: open at event 100, close
+   at event 900. Exercises the smallest possible path through the pipeline.
+2. **`fixtures/round-trips.yaml`** — two round trips: open at 100 / close
+   at 300, then open at 500 / close at 800. Exercises cumulative PnL,
+   portfolio state transitions through zero, and a clean end state.
+
+Both fixtures run against the same synthetic feed (seed 42, 1000 events).
+
 ### Acceptance criteria
 
 1. **[must]** `npm run backtest -- --config fixtures/minimal.yaml` exits 0
    and prints a non-zero final PnL.
-2. **[must]** Two invocations produce byte-identical JSONL audit logs
-   (checked via `diff`).
-3. **[must]** The integration test asserts exactly 1 `OrderIntent`, 1
-   `OrderRequest`, 1 `RiskDecision` (accept), 1 `OrderEvent` (accepted), 1
-   `FillEvent`, 2 `PnlEvent`s (open + close), ≥1 `PnlSnapshot`.
-4. **[must]** Swapping the seed changes PnL — confirms RNG determinism, not a
-   hardcoded path.
-5. **[should]** The JSONL log for a known seed is checked into the repo as a
-   fixture; CI diffs against it to catch accidental determinism regressions.
-   Golden-file brittleness is a known tradeoff; the diff on regen is the
-   signal.
+2. **[must]** Two invocations (same fixture) produce byte-identical JSONL
+   audit logs (checked via `diff`).
+3. **[must]** The `minimal.yaml` integration test asserts exactly 1
+   `OrderIntent`, 1 `OrderRequest`, 1 `RiskDecision` (accept), 1
+   `OrderEvent` (accepted), 1 `FillEvent`, 2 `PnlEvent`s (open + close),
+   ≥1 `PnlSnapshot`.
+4. **[must]** The `round-trips.yaml` integration test asserts 2
+   `OrderIntent`s opening + 2 closing (4 total), 4 `FillEvent`s, asserts
+   cumulative `realizedCumulative` on the final `PnlEvent` equals the sum of
+   the two round-trip realized deltas, and asserts the `OrderManager` open
+   orders table is empty at run end.
+5. **[must]** Swapping the seed changes PnL — confirms RNG determinism, not
+   a hardcoded path.
+6. **[must]** Running the CLI with no config and no flags starts a
+   `backtest_l1` run. Running with a config that has no `run.mode`
+   likewise starts `backtest_l1`. Running with `mode: paper` or `mode: live`
+   fails the config load in Plan 3 (Plan 7 relaxes this once the arming
+   surface exists).
+7. **[should]** The JSONL log for `minimal.yaml` at seed 42 is checked into
+   the repo as a fixture; CI diffs against it to catch accidental
+   determinism regressions. Golden-file brittleness is a known tradeoff;
+   the diff on regen is the signal.
 
 ### Out of scope (explicit)
 
@@ -342,6 +386,81 @@ bus; only RiskManager, OrderManager, and the adapter write. The JSONL writer
 is a pure subscriber — it logs everything and can be disabled without
 affecting behavior.
 
+## Determinism contract (Plans 2 + 3)
+
+Byte-identical JSONL log diffs are only meaningful if the engine pins down
+every source of non-determinism. The slice locks these:
+
+- **ID generation in backtest mode.** `eventId`, `intentId`, `requestId`,
+  and `RunId` are all ULIDs in the design spec. In `backtest_l1` and
+  `backtest_l2` modes, the engine generates them from a counter seeded at
+  run start, not from the system clock + randomness. The counter is a
+  plain monotonic integer rendered as a ULID-shaped string (e.g.,
+  `00000000000000000000000042`). Live and paper modes use real ULIDs.
+  This is a mode-dependent behavior in the engine, not the contract — the
+  `RunId`/`ConfigHash` types stay opaque strings.
+- **JSONL serialization.** Every audit line is:
+  - UTF-8 encoded, LF line ending (no CRLF), one record per line, no
+    trailing comma, no pretty printing.
+  - Object keys serialized in a stable, sorted order (alphabetical by key
+    name at every nesting level). This eliminates JSON.stringify
+    implementation variance.
+  - No optional whitespace around `:` or `,`.
+- **Floating-point formatting.** All numbers serialized in JSONL go through
+  a fixed formatter — decimal notation, no exponents, 12 digits after the
+  decimal point, trailing zeros preserved (e.g., `1.234567890000`).
+  Integers render without a decimal point. This trades terseness for
+  diffability. The formatter lives in `packages/engine` and is unit-tested
+  against edge cases (0, negative zero, very small, very large).
+- **Clock.** The injected clock advances strictly by event `tsExchange` in
+  backtest modes. The engine never reads wall-clock time during a backtest
+  run.
+- **RNG.** The synthetic feed's RNG is a pure function of the configured
+  seed + an internal step counter. No system entropy source.
+- **Iteration order.** Any `Map` or `Set` iteration that affects output
+  ordering uses insertion order explicitly (JavaScript's default for `Map`
+  and `Set`), and the order of insertion is itself deterministic (driven
+  by event stream).
+
+Any future change that introduces a source of non-determinism (e.g., a
+parallel dispatcher worker, a native binding that randomizes output) must
+either (a) not affect the JSONL log, or (b) be gated behind a config flag
+that is off by default in backtest modes.
+
+## PnL semantics (v0.1)
+
+The v0.1 slice uses the simplest possible PnL model. Later plans replace
+pieces of this as realism requires.
+
+- **Mark source for unrealized PnL.** The mid of the most recent
+  `QuoteEvent` for the instrument. If no quote has been seen yet, mark =
+  last `TradeEvent` price. If neither, unrealized = 0 (no position can
+  exist before any market data has been seen in the backtest adapter).
+- **Realized PnL on a fill.** For a closing fill (reducing absolute
+  position), `realizedDelta = (fill_price − avg_entry) × filled_qty × sign`
+  where `sign` is +1 for long-closing-via-sell and −1 for
+  short-closing-via-buy. For an opening fill (increasing absolute
+  position), `realizedDelta = 0` and the average entry updates.
+- **Fees.** `FillEvent.feesPaid` already exists in core. In v0.1 the
+  backtest adapter sets `feesPaid = 0` — zero-fee execution. PnL
+  accounting respects the field, so when a later plan introduces a fee
+  model nothing in the engine needs to change.
+- **Currency.** The portfolio and PnL events all carry a currency string.
+  v0.1 uses a single per-run currency (`USDC` for Hyperliquid perps). No
+  cross-currency conversion in v0.1.
+- **Out of scope for the slice (explicit).**
+  - **Execution quality modeling** — slippage, queue position, partial
+    fills, maker-vs-taker fee differentials, latency penalties. The
+    backtest adapter in Plan 3 fills at the most recent quote's mid,
+    instantly and in full. A realistic execution model is a later plan,
+    informed by whichever strategy first needs it (probably Plan 4's MA
+    crossover or Plan 5's first real adapter run).
+  - **Funding payments, borrow costs, staking yield.** Perp funding on
+    Hyperliquid is real but not in v0.1 — the `funding` `MarketEventType`
+    discriminator is already reserved in core for this.
+  - **Multi-leg atomicity** — any intent sequence that only makes sense
+    as a unit. v0.1's trivial strategy emits single-leg intents.
+
 ## Error handling posture (Plans 2 + 3)
 
 - **Boundary validation only.** Config load validates shape and fails the
@@ -374,7 +493,7 @@ affecting behavior.
 |---|------|------------|-------|
 | R1 | The engine package grows beyond "scaffolding" and starts making policy decisions (e.g., baking in a default risk rule). | Keep `packages/engine` strictly about wiring. Every policy-like behavior goes in its own package that plugs in via a contract. Reviewer discipline. | Plan 2 reviewer |
 | R2 | Golden-file fixture (acceptance 5 in Plan 3) becomes churn when any benign event-order change happens. | Flagged as `[should]`, not `[must]`. Regen is a one-line command. If it causes more pain than it catches, drop it. | Plan 3 reviewer |
-| R3 | `PnlEvent` and `PnlSnapshot` mark-to-market logic requires a mark source in backtest. For a crypto perp with no orderbook walk, using last trade price is OK; for prediction markets it will not be. | Accept the crypto-only limitation for Plan 2. Plan 8 (prediction-market extensions) revisits the mark source. | Plan 8 |
+| R3 | The v0.1 mark source (mid of last quote, falling back to last trade price) is fine for crypto perps but wrong for prediction markets where outcome tokens have a distinct "fair price" and asymmetric book depth. | Documented explicitly in the PnL semantics section as a crypto-only model. Plan 8 (prediction-market extensions) revisits with an outcome-token-aware mark. | Plan 8 |
 | R4 | The "trivial strategy" in Plan 3 is so trivial that it hides pipeline bugs that only surface under realistic load (multiple concurrent intents, partial fills, cancels). | Plan 4 (MA crossover) is the first plan with non-trivial strategy state. If it surfaces pipeline bugs, those go back into Plan 2's acceptance criteria as additions. | Plan 4 |
 | R5 | Deferring prediction-market contract extensions to Plan 8 means someone building on Plans 2–7 could lock in design choices that assume crypto semantics. | The `OutcomeToken` type and binary-market fields already exist in Plan 1. The engine doesn't read them; that's fine. Lifecycle/settlement events are additive in Plan 8 — nothing earlier needs to know about them. | Plan 8 designer |
 | R6 | The synthetic data generator (`@trade-arbiter/synth-feed`) could drift from real Hyperliquid event shapes, so a strategy that works in backtest fails in the real adapter. | Plan 5 (Hyperliquid adapter) re-runs Plan 4's MA crossover against recorded data as its acceptance test. A shape mismatch fails Plan 5, not silently. | Plan 5 |
